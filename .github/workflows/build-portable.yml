@@ -1,0 +1,91 @@
+name: Build & Release Portable
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-portable:
+    name: Build Windows Portable EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Portable EXE
+        run: npm run build:portable
+
+      - name: Package Portable Binaries
+        shell: pwsh
+        run: |
+          $exePath = "src-tauri/target/release/WeaselTune.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Portable binary not found at $exePath"
+            exit 1
+          }
+          
+          # 准备独立运行包
+          New-Item -ItemType Directory -Force -Path "build_output" | Out-Null
+          Copy-Item $exePath -Destination "build_output/WeaselTune.exe"
+          
+          # 创建 ZIP 压缩包
+          Compress-Archive -Path $exePath -DestinationPath "build_output/WeaselTune-windows-x64-portable.zip" -Force
+          
+          # 生成 SHA256 校验和文件
+          Set-Location "build_output"
+          $exeHash = (Get-FileHash -Algorithm SHA256 "WeaselTune.exe").Hash
+          $zipHash = (Get-FileHash -Algorithm SHA256 "WeaselTune-windows-x64-portable.zip").Hash
+          @"
+          $exeHash  WeaselTune.exe
+          $zipHash  WeaselTune-windows-x64-portable.zip
+          "@ | Out-File -Encoding utf8 "sha256.txt"
+          Set-Location ..
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeaselTune-portable-x64
+          path: build_output/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release (On Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build_output/WeaselTune.exe
+            build_output/WeaselTune-windows-x64-portable.zip
+            build_output/sha256.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

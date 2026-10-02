@@ -1,0 +1,260 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* 默认暗黑模式 (Dark Mode Palette) */
+  --bg-primary: #0b0f17;      /* 最底层背景: 深邃黑曜 */
+  --bg-secondary: #131b26;    /* 侧边栏与头部: 沉稳深青灰 */
+  --bg-card: #1c2635;         /* 卡片背景 */
+  --bg-card-hover: #233144;   /* 悬停卡片 */
+  --bg-elevated: #28374d;     /* 控件输入框背景 */
+  --bg-tertiary: #182232;     /* 次级嵌入层 */
+  
+  /* 高可读性文字色彩体系 */
+  --text-main: #ffffff;       /* 主标题与关键文字 */
+  --text-primary: #f1f5f9;    /* 主要文本 */
+  --text-muted: #cbd5e1;      /* 说明与次要文本 */
+  --text-dim: #94a3b8;        /* 辅助注解文字 */
+  
+  /* 品牌与功能强调色 */
+  --accent: #38bdf8;          /* 天空蓝高光 */
+  --accent-glow: rgba(56, 189, 248, 0.2);
+  --accent-green: #34d399;    /* 翡翠绿 (就绪/通过) */
+  --accent-amber: #fbbf24;    /* 琥珀金 (警告/提示) */
+  --accent-rose: #f43f5e;     /* 玫瑰红 (危险/删除) */
+  --accent-purple: #c084fc;   /* 紫罗兰 */
+  
+  /* 鲜明边框 */
+  --border: #2d3c52;
+  --border-light: rgba(241, 245, 249, 0.12);
+  --border-accent: rgba(56, 189, 248, 0.4);
+  
+  --panel-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --card-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  --hero-banner-bg: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  --hero-banner-border: rgba(56, 189, 248, 0.35);
+
+  /* Diff 比对器色彩 */
+  --diff-bg: #0c1017;
+  --diff-cur-linenum-bg: #090d14;
+  --diff-bak-linenum-bg: #0f0b12;
+  --diff-linenum-color: #475569;
+  --diff-text-color: #e2e8f0;
+  --diff-add-bg: rgba(34, 197, 94, 0.18);
+  --diff-add-text: #86efac;
+  --diff-mod-bg: rgba(56, 189, 248, 0.18);
+  --diff-mod-text: #7dd3fc;
+  --diff-rem-bg: rgba(244, 63, 94, 0.18);
+  --diff-rem-text: #fda4af;
+
+  --preview-backdrop: linear-gradient(180deg, #131d2a 0%, #0d141e 100%);
+  --preview-cursor-box: rgba(15, 23, 42, 0.85);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+[data-theme="light"] {
+  /* 高级质感亮色模式 (Clean Light Mode Palette) */
+  --bg-primary: #f1f5f9;      /* 整体底色: 柔和浅灰蓝 slate-100 */
+  --bg-secondary: #ffffff;    /* 侧边栏与头部: 纯白高亮 */
+  --bg-card: #ffffff;         /* 面板与卡片背景: 纯白立体 */
+  --bg-card-hover: #f8fafc;   /* 悬停卡片: 微灰高亮 */
+  --bg-elevated: #f8fafc;     /* 控件输入框背景: 柔和浅灰 */
+  --bg-tertiary: #f1f5f9;     /* 次级嵌入层: slate-100 */
+  
+  --text-main: #0f172a;       /* 主标题与关键文字: 深度石板黑 slate-900 */
+  --text-primary: #1e293b;    /* 主要文本: slate-800 */
+  --text-muted: #475569;      /* 说明与次要文本: slate-600 */
+  --text-dim: #64748b;        /* 辅助注解文字: slate-500 */
+  
+  --accent: #0284c7;          /* 天蓝强调色 (深邃高对比天蓝) */
+  --accent-glow: rgba(2, 132, 199, 0.14);
+  --accent-green: #059669;    /* 翡翠绿 (高对比度深绿) */
+  --accent-amber: #d97706;    /* 琥珀金 (高对比度深金黄) */
+  --accent-rose: #e11d48;     /* 玫瑰红 */
+  --accent-purple: #9333ea;   /* 紫罗兰 */
+  
+  --border: #cbd5e1;          /* 细腻轮廓边框: slate-300 */
+  --border-light: rgba(15, 23, 42, 0.08);
+  --border-accent: rgba(2, 132, 199, 0.45);
+  
+  --panel-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+  --card-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  --hero-banner-bg: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+  --hero-banner-border: rgba(2, 132, 199, 0.35);
+
+  /* Diff 比对器色彩 (Light) */
+  --diff-bg: #ffffff;
+  --diff-cur-linenum-bg: #f8fafc;
+  --diff-bak-linenum-bg: #f8fafc;
+  --diff-linenum-color: #94a3b8;
+  --diff-text-color: #1e293b;
+  --diff-add-bg: #ecfdf5;
+  --diff-add-text: #047857;
+  --diff-mod-bg: #f0f9ff;
+  --diff-mod-text: #0369a1;
+  --diff-rem-bg: #fff1f2;
+  --diff-rem-text: #be123c;
+
+  --preview-backdrop: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  --preview-cursor-box: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+html, body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  user-select: none;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* 统一表单控件使用主题变量，杜绝白底白字或黑底黑字 */
+select, option, input, textarea, button {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-main);
+}
+
+select {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+}
+
+option {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+}
+
+input[type="text"], input[type="number"] {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+}
+
+input::placeholder {
+  color: var(--text-dim);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+.mono {
+  font-family: 'Fira Code', Consolas, monospace;
+}
+
+/* Glassmorphism panel with crisp border */
+.glass-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--panel-shadow);
+}
+
+/* Card highlight effects */
+.glow-card {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glow-card:hover {
+  border-color: var(--border-accent);
+  background-color: var(--bg-card-hover);
+  box-shadow: var(--panel-shadow);
+  transform: translateY(-1px);
+}
+
+/* Modern Switch styling */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border);
+  transition: .25s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 26px;
+  border: 1px solid var(--border);
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: .25s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 50%;
+}
+input:checked + .slider {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+input:checked + .slider:before {
+  transform: translateX(22px);
+  background-color: #ffffff;
+}
+
+/* Button micro-interactions */
+.btn-primary {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  color: #ffffff !important;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  box-shadow: 0 2px 10px rgba(2, 132, 199, 0.35);
+  transition: all 0.2s ease;
+  font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+  box-shadow: 0 4px 16px rgba(56, 189, 248, 0.5);
+  transform: translateY(-1px);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
