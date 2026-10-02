@@ -369,15 +369,17 @@ export function App() {
 
   // 用户自定义调色更新当前皮肤
   const handleSchemeChange = (updatedScheme: ColorSchemeItem) => {
-    if (!config) return;
-    const exists = config.preset_schemes.some((s) => s.id === updatedScheme.id);
-    const newSchemes = exists
-      ? config.preset_schemes.map((s) => (s.id === updatedScheme.id ? updatedScheme : s))
-      : [updatedScheme, ...config.preset_schemes];
-    setConfig({
-      ...config,
-      preset_schemes: newSchemes,
-      style: { ...config.style, color_scheme: updatedScheme.id },
+    setConfig((prev) => {
+      if (!prev) return prev;
+      const exists = prev.preset_schemes.some((s) => s.id === updatedScheme.id);
+      const newSchemes = exists
+        ? prev.preset_schemes.map((s) => (s.id === updatedScheme.id ? updatedScheme : s))
+        : [updatedScheme, ...prev.preset_schemes];
+      return {
+        ...prev,
+        preset_schemes: newSchemes,
+        style: { ...prev.style, color_scheme: updatedScheme.id },
+      };
     });
   };
 
@@ -590,7 +592,7 @@ export function App() {
                   styleConfig={config.style}
                   presetSchemes={config.preset_schemes}
                   defaultSchemes={defaultSchemes}
-                  onChange={(newStyle) => setConfig({ ...config, style: newStyle })}
+                  onChange={(newStyle) => setConfig((prev) => prev ? { ...prev, style: newStyle } : prev)}
                   onSchemeChange={handleSchemeChange}
                 />
               )}

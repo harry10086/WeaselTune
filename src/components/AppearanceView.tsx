@@ -1,7 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ColorSchemeItem, WeaselStyleConfig } from '../types';
 import { CandidatePreview } from './CandidatePreview';
-import { Palette, Layout, Type, Square, Check, Pipette, Monitor, Search, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import {
+  Palette,
+  Layout,
+  Type,
+  Square,
+  Check,
+  Pipette,
+  Monitor,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  Plus,
+  X,
+  FileCode,
+  Sliders,
+  CheckCircle2,
+  AlertCircle,
+  Sparkles,
+} from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface AppearanceViewProps {
@@ -23,6 +42,32 @@ export const AppearanceView: React.FC<AppearanceViewProps> = ({
   const [fontSearch, setFontSearch] = useState('');
   const [showFontPicker, setShowFontPicker] = useState(false);
   const [resetToast, setResetToast] = useState(false);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // 新建/导入皮肤弹窗状态
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [modalMode, setModalMode] = useState<'yaml' | 'manual'>('yaml');
+
+  // YAML 导入模式状态
+  const [yamlText, setYamlText] = useState('');
+  const [yamlError, setYamlError] = useState<string | null>(null);
+  const [parsedPreview, setParsedPreview] = useState<ColorSchemeItem | null>(null);
+
+  // 手动调色模式状态
+  const [manualName, setManualName] = useState('');
+  const [manualId, setManualId] = useState('');
+  const [manualAuthor, setManualAuthor] = useState('');
+  const [manualFormat, setManualFormat] = useState<'argb' | 'rgba' | 'abgr'>('argb');
+  const [manualColors, setManualColors] = useState({
+    back_color: '#F4F9F1',
+    text_color: '#4D7C0F',
+    candidate_text_color: '#1A2E05',
+    hilited_back_color: '#4D7C0F',
+    hilited_text_color: '#F7FEE7',
+    border_color: '#4D7C0F',
+    label_color: '#9CB88A',
+    comment_text_color: '#84A36B',
+  });
 
   useEffect(() => {
     invoke<string[]>('get_system_fonts')
@@ -133,6 +178,95 @@ export const AppearanceView: React.FC<AppearanceViewProps> = ({
     { key: 'hilited_comment_text_color', label: '高亮拼音/释义', desc: '高亮选区内的拼音或释义提示颜色' },
   ];
 
+  const handleValidateYaml = async (text: string) => {
+    setYamlText(text);
+    if (!text.trim()) {
+      setYamlError(null);
+      setParsedPreview(null);
+      return;
+    }
+    try {
+      const parsed = await invoke<ColorSchemeItem>('parse_color_scheme_yaml', { yamlStr: text });
+      setParsedPreview(parsed);
+      setYamlError(null);
+    } catch (err: any) {
+      setYamlError(typeof err === 'string' ? err : 'YAML 解析失败，请检查格式');
+      setParsedPreview(null);
+    }
+  };
+
+  const handleFillSample = () => {
+    const sample = `name: "抹茶/matcha"
+author: "AIME"
+color_format: argb
+back_color: 0xF5F4F9F1
+border_color: 0x1F4D7C0F
+preedit_back_color: 0x00000000
+text_color: 0xFF4D7C0F
+hilited_text_color: 0xFF365314
+hilited_back_color: 0x1F65A30D
+candidate_text_color: 0xFF1A2E05
+comment_text_color: 0xFF84A36B
+label_color: 0xFF9CB88A
+hilited_candidate_back_color: 0xFF4D7C0F
+hilited_candidate_text_color: 0xFFF7FEE7
+hilited_comment_text_color: 0xFFD9F99D
+hilited_candidate_label_color: 0xFFD9F99D`;
+    handleValidateYaml(sample);
+  };
+
+  const handleApplyYaml = async () => {
+    if (!yamlText.trim()) {
+      setYamlError('请先输入或粘贴 YAML 代码');
+      return;
+    }
+    try {
+      const scheme = await invoke<ColorSchemeItem>('parse_color_scheme_yaml', { yamlStr: yamlText });
+      onSchemeChange(scheme);
+      setShowNewModal(false);
+      setSuccessToast(`已成功创建并应用新皮肤【${scheme.name}】！`);
+      setTimeout(() => setSuccessToast(null), 3500);
+    } catch (err: any) {
+      setYamlError(typeof err === 'string' ? err : 'YAML 格式校验失败，请检查');
+    }
+  };
+
+  const handleApplyManual = () => {
+    const trimmedName = manualName.trim();
+    if (!trimmedName) {
+      alert('请输入皮肤方案名称');
+      return;
+    }
+    let sid = manualId.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!sid) {
+      const candidate = trimmedName.includes('/') ? trimmedName.split('/')[1] : trimmedName;
+      sid = candidate.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+      if (!sid) {
+        sid = `custom_${Date.now()}`;
+      }
+    }
+    const newScheme: ColorSchemeItem = {
+      id: sid,
+      name: trimmedName,
+      author: manualAuthor.trim() || 'User',
+      color_format: manualFormat,
+      back_color: manualColors.back_color,
+      text_color: manualColors.text_color,
+      label_color: manualColors.label_color,
+      candidate_text_color: manualColors.candidate_text_color,
+      hilited_text_color: manualColors.hilited_text_color,
+      hilited_back_color: manualColors.hilited_back_color,
+      hilited_candidate_back_color: manualColors.hilited_back_color,
+      hilited_candidate_text_color: manualColors.hilited_text_color,
+      border_color: manualColors.border_color,
+      comment_text_color: manualColors.comment_text_color,
+    };
+    onSchemeChange(newScheme);
+    setShowNewModal(false);
+    setSuccessToast(`已成功创建并应用新皮肤【${newScheme.name}】！`);
+    setTimeout(() => setSuccessToast(null), 3500);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
       {/* 实时渲染预览区 (所见即所得，颜色调整立刻生效) */}
@@ -152,10 +286,59 @@ export const AppearanceView: React.FC<AppearanceViewProps> = ({
             </span>
           </div>
 
+          {successToast && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                color: '#10b981',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                fontSize: '13px',
+                fontWeight: 600,
+              }}
+            >
+              <CheckCircle2 size={16} />
+              <span>{successToast}</span>
+            </div>
+          )}
+
           <div>
-            <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
-              选择基础皮肤方案
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                选择基础皮肤方案
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewModal(true);
+                  if (!yamlText) {
+                    handleFillSample();
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                  color: '#38bdf8',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                title="新建自定义皮肤方案或直接复制粘贴 YAML 代码导入"
+              >
+                <Plus size={14} />
+                <span>新建皮肤方案</span>
+              </button>
+            </div>
             <select
               value={styleConfig.color_scheme}
               onChange={(e) => updateStyle({ color_scheme: e.target.value })}
@@ -774,6 +957,537 @@ export const AppearanceView: React.FC<AppearanceViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 新建 / 导入皮肤方案模态弹窗 */}
+      {showNewModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowNewModal(false)}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: '680px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              backgroundColor: 'var(--bg-secondary)',
+              borderRadius: '16px',
+              border: '1px solid var(--border)',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 弹窗顶部栏 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '18px 24px',
+                borderBottom: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#38bdf8',
+                  }}
+                >
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-main)' }}>
+                    新建 / 导入皮肤方案
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                    支持直接粘贴 Rime Weasel 皮肤 YAML 代码，或通过可视化界面调色
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowNewModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* 模式切换选项卡 */}
+            <div
+              style={{
+                display: 'flex',
+                borderBottom: '1px solid var(--border)',
+                backgroundColor: 'var(--bg-tertiary)',
+                padding: '0 24px',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setModalMode('yaml')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '12px 18px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderBottom: modalMode === 'yaml' ? '2px solid #38bdf8' : '2px solid transparent',
+                  color: modalMode === 'yaml' ? '#38bdf8' : 'var(--text-muted)',
+                  background: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <FileCode size={16} />
+                <span>直接粘贴 YAML 代码 (推荐)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalMode('manual')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '12px 18px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderBottom: modalMode === 'manual' ? '2px solid #38bdf8' : '2px solid transparent',
+                  color: modalMode === 'manual' ? '#38bdf8' : 'var(--text-muted)',
+                  background: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Sliders size={16} />
+                <span>手动可视化调色</span>
+              </button>
+            </div>
+
+            {/* 弹窗主体内容 */}
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {modalMode === 'yaml' ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                      粘贴 YAML 配色代码（将自动校验，未声明的颜色自动补全黑白默认值）：
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={handleFillSample}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                          color: '#38bdf8',
+                          border: '1px solid rgba(56, 189, 248, 0.3)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        填入抹茶示例
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setYamlText('');
+                          setYamlError(null);
+                          setParsedPreview(null);
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          backgroundColor: 'var(--bg-tertiary)',
+                          color: 'var(--text-muted)',
+                          border: '1px solid var(--border)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        清空
+                      </button>
+                    </div>
+                  </div>
+
+                  <textarea
+                    className="mono"
+                    value={yamlText}
+                    onChange={(e) => handleValidateYaml(e.target.value)}
+                    placeholder={`name: "抹茶/matcha"
+author: "AIME"
+color_format: argb
+back_color: 0xF5F4F9F1
+border_color: 0x1F4D7C0F
+text_color: 0xFF4D7C0F
+hilited_candidate_back_color: 0xFF4D7C0F
+...`}
+                    style={{
+                      width: '100%',
+                      height: '240px',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      backgroundColor: 'var(--bg-primary)',
+                      color: 'var(--text-main)',
+                      border: yamlError ? '1px solid #f43f5e' : '1px solid var(--border)',
+                      fontSize: '13px',
+                      lineHeight: '1.6',
+                      resize: 'vertical',
+                      outline: 'none',
+                    }}
+                  />
+
+                  {/* 错误反馈 */}
+                  {yamlError && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '8px',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        backgroundColor: 'rgba(244, 63, 94, 0.12)',
+                        color: '#f43f5e',
+                        border: '1px solid rgba(244, 63, 94, 0.3)',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <span>{yamlError}</span>
+                    </div>
+                  )}
+
+                  {/* 语法解析成功卡片与实时渲染预览 */}
+                  {parsedPreview && !yamlError && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                        padding: '14px',
+                        borderRadius: '10px',
+                        backgroundColor: 'var(--bg-tertiary)',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '13px', fontWeight: 700 }}>
+                          <CheckCircle2 size={16} />
+                          <span>YAML 校验成功：【{parsedPreview.name}】</span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                          格式: {parsedPreview.color_format || 'argb'} | ID: {parsedPreview.id} | 作者: {parsedPreview.author}
+                        </span>
+                      </div>
+
+                      {/* 实时迷你候选框展示 */}
+                      <div
+                        style={{
+                          backgroundColor: parsedPreview.back_color,
+                          borderColor: parsedPreview.border_color,
+                          borderWidth: '1px',
+                          borderStyle: 'solid',
+                          borderRadius: '8px',
+                          padding: '10px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '14px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            backgroundColor: parsedPreview.hilited_candidate_back_color || parsedPreview.hilited_back_color,
+                            color: parsedPreview.hilited_candidate_text_color || parsedPreview.hilited_text_color,
+                            padding: '3px 8px',
+                            borderRadius: '5px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <span>1. 抹茶</span>
+                          {parsedPreview.hilited_comment_text_color && (
+                            <span style={{ fontSize: '11px', opacity: 0.9 }}>
+                              [mǒ chá]
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ color: parsedPreview.candidate_text_color, fontSize: '13px' }}>
+                          <span style={{ color: parsedPreview.label_color, marginRight: '4px' }}>2.</span>
+                          <span>方案</span>
+                          <span style={{ color: parsedPreview.comment_text_color, fontSize: '11px', marginLeft: '4px' }}>
+                            [fāng àn]
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* 手动调色模式 */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>
+                        方案名称 (Name) *
+                      </label>
+                      <input
+                        type="text"
+                        value={manualName}
+                        onChange={(e) => setManualName(e.target.value)}
+                        placeholder="例如: 抹茶/matcha"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'var(--bg-primary)',
+                          color: 'var(--text-main)',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>
+                        方案标识 ID (选填，留空自动生成)
+                      </label>
+                      <input
+                        type="text"
+                        value={manualId}
+                        onChange={(e) => setManualId(e.target.value)}
+                        placeholder="例如: matcha"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'var(--bg-primary)',
+                          color: 'var(--text-main)',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>
+                        方案作者 (Author)
+                      </label>
+                      <input
+                        type="text"
+                        value={manualAuthor}
+                        onChange={(e) => setManualAuthor(e.target.value)}
+                        placeholder="例如: AIME"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'var(--bg-primary)',
+                          color: 'var(--text-main)',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>
+                        色彩格式 (color_format)
+                      </label>
+                      <select
+                        value={manualFormat}
+                        onChange={(e) => setManualFormat(e.target.value as any)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'var(--bg-primary)',
+                          color: 'var(--text-main)',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="argb">argb (AARRGGBB - 推荐)</option>
+                        <option value="rgba">rgba (RRGGBBAA)</option>
+                        <option value="abgr">abgr (经典默认)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 手动调色板 */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-dim)', fontWeight: 600, marginBottom: '4px' }}>
+                      核心颜色配置（点击色块即可弹出调色板）：
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
+                      {[
+                        { key: 'back_color', label: '候选窗口背景' },
+                        { key: 'text_color', label: '普通候选文字' },
+                        { key: 'hilited_back_color', label: '高亮候选背景' },
+                        { key: 'hilited_text_color', label: '高亮候选文字' },
+                        { key: 'border_color', label: '边框颜色' },
+                        { key: 'label_color', label: '序号标签颜色' },
+                        { key: 'comment_text_color', label: '普通拼音释义' },
+                      ].map((item) => (
+                        <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: '6px', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-main)' }}>{item.label}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input
+                              type="color"
+                              value={toValidHex((manualColors as any)[item.key])}
+                              onChange={(e) => setManualColors({ ...manualColors, [item.key]: e.target.value.toUpperCase() })}
+                              style={{ width: '24px', height: '24px', padding: 0, border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'transparent' }}
+                            />
+                            <span className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {(manualColors as any)[item.key]}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 实时预览 */}
+                  <div
+                    style={{
+                      backgroundColor: manualColors.back_color,
+                      borderColor: manualColors.border_color,
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        backgroundColor: manualColors.hilited_back_color,
+                        color: manualColors.hilited_text_color,
+                        padding: '4px 10px',
+                        borderRadius: '5px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <span>1. {manualName || '预览词条'}</span>
+                    </div>
+                    <div style={{ color: manualColors.text_color, fontSize: '13px' }}>
+                      <span style={{ color: manualColors.label_color, marginRight: '4px' }}>2.</span>
+                      <span>备选方案</span>
+                      <span style={{ color: manualColors.comment_text_color, fontSize: '11px', marginLeft: '4px' }}>
+                        [fāng àn]
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 弹窗底部操作按钮 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: '12px',
+                padding: '16px 24px',
+                borderTop: '1px solid var(--border)',
+                backgroundColor: 'var(--bg-tertiary)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowNewModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  backgroundColor: 'var(--bg-elevated)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={modalMode === 'yaml' ? handleApplyYaml : handleApplyManual}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 20px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  backgroundColor: '#38bdf8',
+                  color: '#0f172a',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Check size={16} />
+                <span>创建并立即应用</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

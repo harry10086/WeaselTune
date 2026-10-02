@@ -294,6 +294,12 @@ pub fn to_weasel_hex_formatted(color_str: &str, color_format: Option<&str>) -> S
     let fmt = color_format.unwrap_or("abgr").trim().to_ascii_lowercase();
     if fmt == "rgba" {
         format!("0x{:0>6}", clean.to_lowercase())
+    } else if fmt == "argb" {
+        if clean.len() <= 6 {
+            format!("0xff{:0>6}", clean.to_lowercase())
+        } else {
+            format!("0x{:0>8}", clean.to_lowercase())
+        }
     } else {
         // Weasel 默认标准颜色格式 ABGR/BGR: 0xBBGGRR
         if let Ok(val) = u32::from_str_radix(clean, 16) {
@@ -310,6 +316,204 @@ pub fn to_weasel_hex_formatted(color_str: &str, color_format: Option<&str>) -> S
 
 pub fn to_weasel_hex(color_str: &str) -> String {
     to_weasel_hex_formatted(color_str, Some("abgr"))
+}
+
+pub fn dedent_yaml(input: &str) -> String {
+    let lines: Vec<&str> = input.lines().collect();
+    let mut start = 0;
+    while start < lines.len() && lines[start].trim().is_empty() {
+        start += 1;
+    }
+    let mut end = lines.len();
+    while end > start && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    if start >= end {
+        return String::new();
+    }
+    let active_lines = &lines[start..end];
+
+    let mut min_indent = usize::MAX;
+    for line in active_lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+        if indent < min_indent {
+            min_indent = indent;
+        }
+    }
+    if min_indent == usize::MAX || min_indent == 0 {
+        return active_lines.join("\n");
+    }
+    let mut result = String::new();
+    for line in active_lines {
+        if line.len() >= min_indent {
+            result.push_str(&line[min_indent..]);
+        } else {
+            result.push_str(line.trim_start());
+        }
+        result.push('\n');
+    }
+    result
+}
+
+pub fn slugify_scheme_id(name: &str) -> String {
+    let candidate_str = if let Some((_, right)) = name.split_once('/') {
+        right
+    } else if let Some((_, right)) = name.split_once('／') {
+        right
+    } else {
+        name
+    };
+
+    let mut id = String::new();
+    for ch in candidate_str.chars() {
+        if ch.is_ascii_alphanumeric() {
+            id.push(ch.to_ascii_lowercase());
+        } else if ch == ' ' || ch == '-' || ch == '_' {
+            if !id.ends_with('_') && !id.is_empty() {
+                id.push('_');
+            }
+        }
+    }
+    let id = id.trim_matches('_').to_string();
+    if !id.is_empty() {
+        id
+    } else {
+        let now_sec = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("custom_{}", now_sec)
+    }
+}
+
+pub fn parse_color_scheme_yaml(yaml_str: &str) -> Result<ColorSchemeItem, String> {
+    let dedented = dedent_yaml(yaml_str);
+    if dedented.trim().is_empty() {
+        return Err("YAML 内容不能为空".to_string());
+    }
+
+    let val: serde_yaml::Value = serde_yaml::from_str(&dedented)
+        .map_err(|e| format!("YAML 格式解析失败: {}", e))?;
+
+    let root_map = val.as_mapping().ok_or_else(|| "YAML 根结构必须是键值对映射".to_string())?;
+
+    let mut detected_id: Option<String> = None;
+    let mut scheme_map: Option<serde_yaml::Mapping> = None;
+
+    if let Some(pcs) = root_map.get(&serde_yaml::Value::String("preset_color_schemes".to_string())).and_then(|v| v.as_mapping()) {
+        if let Some((first_k, first_v)) = pcs.iter().next() {
+            if let Some(sid) = first_k.as_str() {
+                detected_id = Some(sid.to_string());
+            }
+            if let Some(sub_m) = first_v.as_mapping() {
+                scheme_map = Some(sub_m.clone());
+            }
+        }
+    } else if root_map.len() == 1 {
+        let (k, v) = root_map.iter().next().unwrap();
+        if let (Some(k_str), Some(sub_m)) = (k.as_str(), v.as_mapping()) {
+            if !k_str.contains('/') {
+                detected_id = Some(k_str.to_string());
+                scheme_map = Some(sub_m.clone());
+            }
+        }
+    }
+
+    let direct_map = if scheme_map.is_none() {
+        let has_slash_keys = root_map.keys().any(|k| k.as_str().map_or(false, |s| s.contains('/')));
+        if has_slash_keys {
+            let mut reconstructed = serde_yaml::Mapping::new();
+            for (k, v) in root_map {
+                if let Some(k_str) = k.as_str() {
+                    let field = if let Some(pos) = k_str.rfind('/') {
+                        let parts: Vec<&str> = k_str.split('/').collect();
+                        if parts.len() >= 2 && detected_id.is_none() {
+                            detected_id = Some(parts[1].to_string());
+                        }
+                        &k_str[pos + 1..]
+                    } else {
+                        k_str
+                    };
+                    reconstructed.insert(serde_yaml::Value::String(field.to_string()), v.clone());
+                }
+            }
+            Some(reconstructed)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let target_map = direct_map.or(scheme_map).unwrap_or_else(|| root_map.clone());
+
+    let get_str = |key: &str| -> Option<String> {
+        target_map.get(&serde_yaml::Value::String(key.to_string()))
+            .and_then(|v| match v {
+                serde_yaml::Value::String(s) => Some(s.clone()),
+                serde_yaml::Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            })
+    };
+
+    let name = get_str("name").unwrap_or_else(|| "自定义皮肤".to_string());
+    let author = get_str("author").unwrap_or_else(|| "User".to_string());
+    let color_format = get_str("color_format").or_else(|| Some("argb".to_string()));
+    let fmt_str = color_format.as_deref().unwrap_or("argb");
+
+    let id = detected_id.unwrap_or_else(|| slugify_scheme_id(&name));
+
+    let extract_color = |key: &str, default_val: &str| -> String {
+        if let Some(val) = target_map.get(&serde_yaml::Value::String(key.to_string())) {
+            parse_weasel_color(val, fmt_str).unwrap_or_else(|| default_val.to_string())
+        } else {
+            default_val.to_string()
+        }
+    };
+
+    let extract_opt_color = |key: &str| -> Option<String> {
+        target_map.get(&serde_yaml::Value::String(key.to_string()))
+            .and_then(|val| parse_weasel_color(val, fmt_str))
+    };
+
+    // 默认黑白配色填充策略（没有指定的颜色默认黑或白）
+    let back_color = extract_color("back_color", "#FFFFFF");
+    let text_color = extract_color("text_color", "#000000");
+    let label_color = extract_color("label_color", "#888888");
+    let candidate_text_color = extract_color("candidate_text_color", &text_color);
+    let hilited_text_color = extract_color("hilited_text_color", "#FFFFFF");
+    let hilited_back_color = extract_color("hilited_back_color", "#3498DB");
+
+    let hilited_candidate_back_color = extract_opt_color("hilited_candidate_back_color")
+        .or_else(|| Some(hilited_back_color.clone()));
+    let hilited_candidate_text_color = extract_opt_color("hilited_candidate_text_color")
+        .or_else(|| Some(hilited_text_color.clone()));
+    let hilited_comment_text_color = extract_opt_color("hilited_comment_text_color");
+
+    let border_color = extract_color("border_color", "#E2E8F0");
+    let comment_text_color = extract_color("comment_text_color", "#888888");
+
+    Ok(ColorSchemeItem {
+        id,
+        name,
+        author,
+        color_format,
+        back_color,
+        text_color,
+        label_color,
+        candidate_text_color,
+        hilited_text_color,
+        hilited_back_color,
+        hilited_candidate_text_color,
+        hilited_candidate_back_color,
+        hilited_comment_text_color,
+        border_color,
+        comment_text_color,
+    })
 }
 
 pub fn is_scheme_modified(curr: &ColorSchemeItem, defaults: &[ColorSchemeItem]) -> bool {
@@ -1452,6 +1656,31 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                         });
                     }
 
+                    let ensure_scheme = |schemes: &mut Vec<ColorSchemeItem>, sid: &str| -> usize {
+                        if let Some(pos) = schemes.iter().position(|s| s.id == sid) {
+                            pos
+                        } else {
+                            schemes.push(ColorSchemeItem {
+                                id: sid.to_string(),
+                                name: sid.to_string(),
+                                author: "User".to_string(),
+                                color_format: None,
+                                back_color: "#FFFFFF".to_string(),
+                                text_color: "#000000".to_string(),
+                                label_color: "#888888".to_string(),
+                                candidate_text_color: "#000000".to_string(),
+                                hilited_text_color: "#FFFFFF".to_string(),
+                                hilited_back_color: "#3498DB".to_string(),
+                                hilited_candidate_text_color: Some("#FFFFFF".to_string()),
+                                hilited_candidate_back_color: Some("#3498DB".to_string()),
+                                hilited_comment_text_color: None,
+                                border_color: "#E2E8F0".to_string(),
+                                comment_text_color: "#888888".to_string(),
+                            });
+                            schemes.len() - 1
+                        }
+                    };
+
                     // 首先提取 weasel.custom.yaml 中各配色方案可能定制的 color_format 设置
                     for (k, v) in patch {
                         if let Some(key_str) = k.as_str() {
@@ -1459,10 +1688,9 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                                 let parts: Vec<&str> = key_str.split('/').collect();
                                 if parts.len() >= 3 && parts[2] == "color_format" {
                                     let sid = parts[1];
-                                    if let Some(scheme) = preset_schemes.iter_mut().find(|s| s.id == sid) {
-                                        if let Some(fmt_str) = v.as_str() {
-                                            scheme.color_format = Some(fmt_str.to_string());
-                                        }
+                                    let idx = ensure_scheme(&mut preset_schemes, sid);
+                                    if let Some(fmt_str) = v.as_str() {
+                                        preset_schemes[idx].color_format = Some(fmt_str.to_string());
                                     }
                                 }
                             }
@@ -1471,10 +1699,9 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                     if let Some(pcs) = patch.get(&serde_yaml::Value::String("preset_color_schemes".to_string())).and_then(|m| m.as_mapping()) {
                         for (sk, sv) in pcs {
                             if let Some(sid) = sk.as_str() {
-                                if let Some(scheme) = preset_schemes.iter_mut().find(|s| s.id == sid) {
-                                    if let Some(fmt_val) = sv.get("color_format").and_then(|f| f.as_str()) {
-                                        scheme.color_format = Some(fmt_val.to_string());
-                                    }
+                                let idx = ensure_scheme(&mut preset_schemes, sid);
+                                if let Some(fmt_val) = sv.get("color_format").and_then(|f| f.as_str()) {
+                                    preset_schemes[idx].color_format = Some(fmt_val.to_string());
                                 }
                             }
                         }
@@ -1491,23 +1718,25 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                                     if field == "color_format" {
                                         continue;
                                     }
-                                    if let Some(scheme) = preset_schemes.iter_mut().find(|s| s.id == sid) {
-                                        let fmt = scheme.color_format.as_deref().unwrap_or("rgba");
-                                        let color_val = parse_weasel_color(v, fmt).unwrap_or_else(|| hex_color_normalize(v));
-                                        match field {
-                                            "back_color" => scheme.back_color = color_val,
-                                            "text_color" => scheme.text_color = color_val,
-                                            "label_color" => scheme.label_color = color_val,
-                                            "candidate_text_color" => scheme.candidate_text_color = color_val,
-                                            "hilited_text_color" => scheme.hilited_text_color = color_val,
-                                            "hilited_back_color" => scheme.hilited_back_color = color_val,
-                                            "hilited_candidate_text_color" => scheme.hilited_candidate_text_color = Some(color_val),
-                                            "hilited_candidate_back_color" => scheme.hilited_candidate_back_color = Some(color_val),
-                                            "hilited_comment_text_color" => scheme.hilited_comment_text_color = Some(color_val),
-                                            "border_color" => scheme.border_color = color_val,
-                                            "comment_text_color" => scheme.comment_text_color = color_val,
-                                            _ => {}
-                                        }
+                                    let idx = ensure_scheme(&mut preset_schemes, sid);
+                                    let scheme = &mut preset_schemes[idx];
+                                    let fmt = scheme.color_format.as_deref().unwrap_or("rgba");
+                                    let color_val = parse_weasel_color(v, fmt).unwrap_or_else(|| hex_color_normalize(v));
+                                    match field {
+                                        "name" => if let Some(s) = v.as_str() { scheme.name = s.to_string(); },
+                                        "author" => if let Some(s) = v.as_str() { scheme.author = s.to_string(); },
+                                        "back_color" => scheme.back_color = color_val,
+                                        "text_color" => scheme.text_color = color_val,
+                                        "label_color" => scheme.label_color = color_val,
+                                        "candidate_text_color" => scheme.candidate_text_color = color_val,
+                                        "hilited_text_color" => scheme.hilited_text_color = color_val,
+                                        "hilited_back_color" => scheme.hilited_back_color = color_val,
+                                        "hilited_candidate_text_color" => scheme.hilited_candidate_text_color = Some(color_val),
+                                        "hilited_candidate_back_color" => scheme.hilited_candidate_back_color = Some(color_val),
+                                        "hilited_comment_text_color" => scheme.hilited_comment_text_color = Some(color_val),
+                                        "border_color" => scheme.border_color = color_val,
+                                        "comment_text_color" => scheme.comment_text_color = color_val,
+                                        _ => {}
                                     }
                                 }
                             }
@@ -1517,21 +1746,23 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                     if let Some(pcs) = patch.get(&serde_yaml::Value::String("preset_color_schemes".to_string())).and_then(|m| m.as_mapping()) {
                         for (sk, sv) in pcs {
                             if let Some(sid) = sk.as_str() {
-                                if let Some(scheme) = preset_schemes.iter_mut().find(|s| s.id == sid) {
-                                    let fmt = scheme.color_format.as_deref().unwrap_or("rgba");
-                                    let parse = |v: &serde_yaml::Value| parse_weasel_color(v, fmt).unwrap_or_else(|| hex_color_normalize(v));
-                                    if let Some(v) = sv.get("back_color") { scheme.back_color = parse(v); }
-                                    if let Some(v) = sv.get("text_color") { scheme.text_color = parse(v); }
-                                    if let Some(v) = sv.get("label_color") { scheme.label_color = parse(v); }
-                                    if let Some(v) = sv.get("candidate_text_color") { scheme.candidate_text_color = parse(v); }
-                                    if let Some(v) = sv.get("hilited_text_color") { scheme.hilited_text_color = parse(v); }
-                                    if let Some(v) = sv.get("hilited_back_color") { scheme.hilited_back_color = parse(v); }
-                                    if let Some(v) = sv.get("hilited_candidate_text_color") { scheme.hilited_candidate_text_color = Some(parse(v)); }
-                                    if let Some(v) = sv.get("hilited_candidate_back_color") { scheme.hilited_candidate_back_color = Some(parse(v)); }
-                                    if let Some(v) = sv.get("hilited_comment_text_color") { scheme.hilited_comment_text_color = Some(parse(v)); }
-                                    if let Some(v) = sv.get("border_color") { scheme.border_color = parse(v); }
-                                    if let Some(v) = sv.get("comment_text_color") { scheme.comment_text_color = parse(v); }
-                                }
+                                let idx = ensure_scheme(&mut preset_schemes, sid);
+                                let scheme = &mut preset_schemes[idx];
+                                let fmt = scheme.color_format.as_deref().unwrap_or("rgba");
+                                let parse = |v: &serde_yaml::Value| parse_weasel_color(v, fmt).unwrap_or_else(|| hex_color_normalize(v));
+                                if let Some(v) = sv.get("name").and_then(|n| n.as_str()) { scheme.name = v.to_string(); }
+                                if let Some(v) = sv.get("author").and_then(|a| a.as_str()) { scheme.author = v.to_string(); }
+                                if let Some(v) = sv.get("back_color") { scheme.back_color = parse(v); }
+                                if let Some(v) = sv.get("text_color") { scheme.text_color = parse(v); }
+                                if let Some(v) = sv.get("label_color") { scheme.label_color = parse(v); }
+                                if let Some(v) = sv.get("candidate_text_color") { scheme.candidate_text_color = parse(v); }
+                                if let Some(v) = sv.get("hilited_text_color") { scheme.hilited_text_color = parse(v); }
+                                if let Some(v) = sv.get("hilited_back_color") { scheme.hilited_back_color = parse(v); }
+                                if let Some(v) = sv.get("hilited_candidate_text_color") { scheme.hilited_candidate_text_color = Some(parse(v)); }
+                                if let Some(v) = sv.get("hilited_candidate_back_color") { scheme.hilited_candidate_back_color = Some(parse(v)); }
+                                if let Some(v) = sv.get("hilited_comment_text_color") { scheme.hilited_comment_text_color = Some(parse(v)); }
+                                if let Some(v) = sv.get("border_color") { scheme.border_color = parse(v); }
+                                if let Some(v) = sv.get("comment_text_color") { scheme.comment_text_color = parse(v); }
                             }
                         }
                     }
@@ -1717,17 +1948,31 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
         }
     }
 
-    // 保存当前选中的配色方案：仅在用户确实自定义/微调了该方案时才写入 patch 覆写
+    // 保存配色方案：包括所有用户新增的自定义皮肤方案，以及被微调修改过的预设皮肤方案
     let default_schemes = load_preset_color_schemes(user_dir);
-    if let Some(curr) = config.preset_schemes.iter().find(|s| s.id == config.style.color_scheme) {
-        if is_scheme_modified(curr, &default_schemes) {
+    let mut schemes_to_save: Vec<&ColorSchemeItem> = Vec::new();
+
+    for s in &config.preset_schemes {
+        let is_custom = !default_schemes.iter().any(|d| d.id == s.id);
+        let is_modified = is_scheme_modified(s, &default_schemes);
+        if is_custom || is_modified {
+            if !schemes_to_save.iter().any(|existing| existing.id == s.id) {
+                schemes_to_save.push(s);
+            }
+        }
+    }
+
+    if !schemes_to_save.is_empty() {
+        weasel_yaml.push_str("\n  # 配色方案定义（用户自定义皮肤与调色覆写）\n");
+        for curr in schemes_to_save {
             let sid = &curr.id;
             let fmt = curr.color_format.as_deref();
-            weasel_yaml.push_str("\n  # 当前配色方案具体颜色定义（用户自定义调色）\n");
             weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/name\": \"{}\"\n", sid, curr.name));
             weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/author\": \"{}\"\n", sid, curr.author));
-            if fmt == Some("rgba") {
-                weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/color_format\": rgba\n", sid));
+            if let Some(f) = fmt {
+                if f.to_ascii_lowercase() != "abgr" {
+                    weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/color_format\": {}\n", sid, f));
+                }
             }
             weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/back_color\": {}\n", sid, to_weasel_hex_formatted(&curr.back_color, fmt)));
             weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/text_color\": {}\n", sid, to_weasel_hex_formatted(&curr.text_color, fmt)));

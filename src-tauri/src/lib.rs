@@ -183,6 +183,11 @@ fn delete_custom_dict(user_dir: String, file_name: String) -> Result<(), String>
     patcher::delete_custom_dict_file(&user_dir, &file_name)
 }
 
+#[tauri::command]
+fn parse_color_scheme_yaml(yaml_str: String) -> Result<patcher::ColorSchemeItem, String> {
+    patcher::parse_color_scheme_yaml(&yaml_str)
+}
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -222,6 +227,7 @@ pub fn run() {
             import_custom_dict,
             create_empty_custom_dict,
             delete_custom_dict,
+            parse_color_scheme_yaml,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WeaselTune");
@@ -365,5 +371,56 @@ mod tests {
         assert!(list_after.is_empty());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_color_scheme_yaml() {
+        let yaml_sample = r#"
+    name: "抹茶/matcha"
+    author: "AIME"
+    color_format: argb
+    back_color: 0xF5F4F9F1
+    border_color: 0x1F4D7C0F
+    preedit_back_color: 0x00000000
+    text_color: 0xFF4D7C0F
+    hilited_text_color: 0xFF365314
+    hilited_back_color: 0x1F65A30D
+    candidate_text_color: 0xFF1A2E05
+    comment_text_color: 0xFF84A36B
+    label_color: 0xFF9CB88A
+    hilited_candidate_back_color: 0xFF4D7C0F
+    hilited_candidate_text_color: 0xFFF7FEE7
+    hilited_comment_text_color: 0xFFD9F99D
+    hilited_candidate_label_color: 0xFFD9F99D
+"#;
+        let res = patcher::parse_color_scheme_yaml(yaml_sample);
+        assert!(res.is_ok(), "Failed to parse: {:?}", res.err());
+        let scheme = res.unwrap();
+        assert_eq!(scheme.id, "matcha");
+        assert_eq!(scheme.name, "抹茶/matcha");
+        assert_eq!(scheme.author, "AIME");
+        assert_eq!(scheme.color_format.as_deref(), Some("argb"));
+        assert_eq!(scheme.back_color, "#F4F9F1");
+        assert_eq!(scheme.text_color, "#4D7C0F");
+        assert_eq!(scheme.candidate_text_color, "#1A2E05");
+        assert_eq!(scheme.hilited_text_color, "#365314");
+        assert_eq!(scheme.hilited_candidate_text_color, Some("#F7FEE7".to_string()));
+        assert_eq!(scheme.hilited_candidate_back_color, Some("#4D7C0F".to_string()));
+        assert_eq!(scheme.hilited_comment_text_color, Some("#D9F99D".to_string()));
+
+        // Test missing color fields defaulting to black and white
+        let minimal_yaml = r#"
+name: "极简白"
+author: "Tester"
+"#;
+        let min_res = patcher::parse_color_scheme_yaml(minimal_yaml);
+        assert!(min_res.is_ok());
+        let min_scheme = min_res.unwrap();
+        assert_eq!(min_scheme.back_color, "#FFFFFF");
+        assert_eq!(min_scheme.text_color, "#000000");
+
+        // Test invalid yaml syntax
+        let invalid = "name: [unclosed list";
+        assert!(patcher::parse_color_scheme_yaml(invalid).is_err());
     }
 }
