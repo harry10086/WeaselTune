@@ -13,8 +13,9 @@ WeaselTune 是一款专为 **小狼毫（Weasel）输入法** 量身定制的现
    - 所有定制化修改一律结构化写入 `%APPDATA%\Rime\*.custom.yaml` 的 `patch:` 节点。
    - 无论日后如何拉取或更新雾凇拼音最新词库与脚本，您的个人定制配置绝不丢失。
 
-2. **以雾凇拼音（rime-ice）为基准模板**：
+2. **以常见输入方案为基准模板**：
    - 深度拆解 [rime-ice](https://github.com/harry10086/rime-ice) Harry 修改的雾凇配置源。
+   - 支持[万象拼音](https://github.com/amzxyz/rime-wanxiang)，[薄荷输入法](https://github.com/Mintimate/oh-my-rime)，[白霜拼音](https://github.com/gaboolic/rime-frost)定制化配置。
    - 可视化提供平翘舌（z↔zh）、鼻边音（l↔n）、唇齿音（f↔h）、前后鼻音等完整模糊音规则开关。
    - 完整支持 Lua 词典释义滤镜（中英双向释义、最大释义项数、最大字符限制）。
    - 包含 Emoji 候选、简繁切换、部件拆字（radical_pinyin）、英文混输补全（melt_eng）及 Markdown 成对符号居中。

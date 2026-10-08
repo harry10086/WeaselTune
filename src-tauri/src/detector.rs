@@ -127,6 +127,9 @@ pub fn inspect_environment() -> EnvironmentStatus {
 
     let user_path = Path::new(&rime_user_dir);
     let is_rime_ice_detected = user_path.join("rime_ice.schema.yaml").exists()
+        || user_path.join("rime_frost.schema.yaml").exists()
+        || user_path.join("rime_mint.schema.yaml").exists()
+        || user_path.join("wanxiang.schema.yaml").exists()
         || Path::new(r"D:\GitHub\rime-ice\rime_ice.schema.yaml").exists();
 
     // 查找已存在的 custom.yaml 补丁文件
@@ -161,31 +164,121 @@ pub fn inspect_environment() -> EnvironmentStatus {
     }
 
     // 探测当前激活的输入方案
-    let mut active_schema_id = "rime_ice".to_string();
-    let mut active_schema_name = "雾凇拼音".to_string();
+    let mut detected_id_opt: Option<String> = None;
 
+    // 1. 优先从 default.custom.yaml 获取用户当前配置的第一方案
     let default_custom = user_path.join("default.custom.yaml");
     if default_custom.exists() {
         if let Ok(content) = std::fs::read_to_string(&default_custom) {
             if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-                if let Some(schema_list) = val.get("patch").and_then(|p| p.get("schema_list")).and_then(|l| l.as_sequence()) {
-                    if let Some(first) = schema_list.first() {
-                        if let Some(schema) = first.get("schema").and_then(|s| s.as_str()) {
-                            active_schema_id = schema.to_string();
-                            active_schema_name = match schema {
-                                "rime_ice" => "雾凇拼音".to_string(),
-                                "double_pinyin_flypy" => "小鹤双拼".to_string(),
-                                "double_pinyin" => "自然码双拼".to_string(),
-                                "double_pinyin_mspy" => "微软双拼".to_string(),
-                                "melt_eng" => "英文输入".to_string(),
-                                "radical_pinyin" => "部件拆字".to_string(),
-                                _ => schema.to_string(),
-                            };
+                if let Some(patch) = val.get("patch") {
+                    if let Some(schema_list) = patch.get("schema_list").and_then(|l| l.as_sequence()) {
+                        if let Some(first) = schema_list.first() {
+                            if let Some(schema) = first.get("schema").and_then(|s| s.as_str()) {
+                                detected_id_opt = Some(schema.to_string());
+                            }
+                        }
+                    }
+                    if detected_id_opt.is_none() {
+                        if let Some(map) = patch.as_mapping() {
+                            for (k, v) in map {
+                                if let Some(k_str) = k.as_str() {
+                                    if k_str.contains("schema_list") && k_str.contains("@0") {
+                                        if let Some(s) = v.get("schema").and_then(|s| s.as_str()) {
+                                            detected_id_opt = Some(s.to_string());
+                                            break;
+                                        } else if let Some(s) = v.as_str() {
+                                            detected_id_opt = Some(s.to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    // 2. 其次从 default.yaml 获取默认第一方案
+    if detected_id_opt.is_none() {
+        let default_yaml = user_path.join("default.yaml");
+        if default_yaml.exists() {
+            if let Ok(content) = std::fs::read_to_string(&default_yaml) {
+                if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    if let Some(schema_list) = val.get("schema_list").and_then(|l| l.as_sequence()) {
+                        if let Some(first) = schema_list.first() {
+                            if let Some(schema) = first.get("schema").and_then(|s| s.as_str()) {
+                                detected_id_opt = Some(schema.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. 再次从用户目录直接存在的方案文件推断
+    if detected_id_opt.is_none() {
+        let candidates = [
+            ("rime_frost.schema.yaml", "rime_frost"),
+            ("rime_mint.schema.yaml", "rime_mint"),
+            ("wanxiang.schema.yaml", "wanxiang"),
+            ("rime_ice.schema.yaml", "rime_ice"),
+        ];
+        for (file_name, id) in &candidates {
+            if user_path.join(file_name).exists() {
+                detected_id_opt = Some(id.to_string());
+                break;
+            }
+        }
+    }
+
+    let active_schema_id = detected_id_opt.unwrap_or_else(|| "rime_ice".to_string());
+
+    // 解析方案展示名称：优先从目标方案文件读 schema/name
+    let mut active_schema_name = String::new();
+    let schema_file = user_path.join(format!("{}.schema.yaml", active_schema_id));
+    if schema_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&schema_file) {
+            if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                if let Some(n) = val.get("schema").and_then(|s| s.get("name")).and_then(|v| v.as_str()) {
+                    active_schema_name = n.to_string();
+                }
+            }
+        }
+    }
+
+    if active_schema_name.is_empty() {
+        active_schema_name = match active_schema_id.as_str() {
+            "rime_frost" => "白霜拼音".to_string(),
+            "rime_frost_double_pinyin" => "白霜·自然码双拼".to_string(),
+            "rime_frost_double_pinyin_flypy" => "白霜·小鹤双拼".to_string(),
+            "rime_frost_double_pinyin_mspy" => "白霜·微软双拼".to_string(),
+            "rime_frost_double_pinyin_sogou" => "白霜·搜狗双拼".to_string(),
+            "rime_frost_double_pinyin_ziguang" => "白霜·紫光双拼".to_string(),
+            "rime_frost_double_pinyin_abc" => "白霜·智能ABC双拼".to_string(),
+            "rime_frost_wubi86" => "白霜·五笔86".to_string(),
+            "rime_frost_moqi_single_xh" => "白霜·墨奇音形".to_string(),
+            "rime_mint" => "薄荷拼音".to_string(),
+            "rime_mint_flypy" => "薄荷·小鹤双拼".to_string(),
+            "wanxiang" => "万象拼音".to_string(),
+            "wanxiang_t9" => "万象·九键拼音".to_string(),
+            "wanxiang_t9i" => "万象·九键拼音i".to_string(),
+            "wanxiang_english" => "万象·英文输入".to_string(),
+            "rime_ice" => "雾凇拼音".to_string(),
+            "double_pinyin_flypy" => "小鹤双拼".to_string(),
+            "double_pinyin" => "自然码双拼".to_string(),
+            "double_pinyin_mspy" => "微软双拼".to_string(),
+            "melt_eng" => "英文输入".to_string(),
+            "radical_pinyin" => "部件拆字".to_string(),
+            "luna_pinyin" => "朙月拼音".to_string(),
+            "terra_pinyin" => "地球拼音".to_string(),
+            "wubi98_mint" => "五笔98·薄荷".to_string(),
+            "wubi86_jidian" => "极点五笔86".to_string(),
+            _ => active_schema_id.clone(),
+        };
     }
 
     EnvironmentStatus {

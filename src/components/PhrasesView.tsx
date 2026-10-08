@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
 import { CustomPhraseItem } from '../types';
-import { Plus, Trash2, Search, Save, Sparkles, X, RotateCcw, FolderOpen, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, Search, Save, Sparkles, X, RotateCcw, FolderOpen, ExternalLink, RotateCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface PhrasesViewProps {
   phrases: CustomPhraseItem[];
+  onPhrasesChange?: (items: CustomPhraseItem[]) => void;
   onSavePhrases: (items: CustomPhraseItem[]) => void;
+  onSaveAndDeploy?: () => void;
   saving: boolean;
   userDir?: string;
 }
 
 export const PhrasesView: React.FC<PhrasesViewProps> = ({
   phrases: initialPhrases,
+  onPhrasesChange,
   onSavePhrases,
+  onSaveAndDeploy,
   saving,
   userDir,
 }) => {
@@ -28,6 +32,11 @@ export const PhrasesView: React.FC<PhrasesViewProps> = ({
   React.useEffect(() => {
     setItems(initialPhrases);
   }, [initialPhrases]);
+
+  const updateItems = (newItems: CustomPhraseItem[]) => {
+    setItems(newItems);
+    onPhrasesChange?.(newItems);
+  };
 
   const handleSearch = () => {
     setActiveQuery(searchInput.trim());
@@ -46,19 +55,21 @@ export const PhrasesView: React.FC<PhrasesViewProps> = ({
       code: newCode.trim(),
       weight: newWeight.trim() ? parseInt(newWeight.trim()) : 1,
     };
-    setItems([newItem, ...items]);
+    const next = [newItem, ...items];
+    updateItems(next);
     setNewText('');
     setNewCode('');
     setNewWeight('1');
   };
 
   const handleDelete = (id: string) => {
-    setItems(items.filter((item) => item.id !== id));
+    const next = items.filter((item) => item.id !== id);
+    updateItems(next);
   };
 
   const handleClearAll = () => {
     if (confirm('确定要清空全部自定义短语吗？点击“保存生效”后，原有短语将自动备份，但当前列表会被全部清空。')) {
-      setItems([]);
+      updateItems([]);
     }
   };
 
@@ -83,14 +94,13 @@ export const PhrasesView: React.FC<PhrasesViewProps> = ({
   };
 
   const handleItemChange = (id: string, field: keyof CustomPhraseItem, val: any) => {
-    setItems(
-      items.map((item) => {
-        if (item.id === id) {
-          return { ...item, [field]: val };
-        }
-        return item;
-      })
-    );
+    const next = items.map((item) => {
+      if (item.id === id) {
+        return { ...item, [field]: val };
+      }
+      return item;
+    });
+    updateItems(next);
   };
 
 
@@ -187,7 +197,35 @@ export const PhrasesView: React.FC<PhrasesViewProps> = ({
             )}
 
             <button
+              type="button"
               onClick={() => onSavePhrases(items)}
+              disabled={saving}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--bg-tertiary)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-main)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: saving ? 'not-allowed' : 'pointer',
+              }}
+              title="仅将短语写回磁盘上的 custom_phrase.txt 文件，不触发小狼毫重新部署"
+            >
+              <Save size={15} /> 仅保存短语
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                await onSavePhrases(items);
+                if (onSaveAndDeploy) {
+                  onSaveAndDeploy();
+                }
+              }}
               disabled={saving}
               className="btn-primary"
               style={{
@@ -200,8 +238,9 @@ export const PhrasesView: React.FC<PhrasesViewProps> = ({
                 fontWeight: 700,
                 cursor: saving ? 'not-allowed' : 'pointer',
               }}
+              title="一键写入短语文件并直接触发小狼毫静默重新部署，无需二次点击"
             >
-              <Save size={15} /> {saving ? '保存中...' : '保存短语修改'}
+              <RotateCw size={15} className={saving ? 'spin' : ''} /> {saving ? '部署中...' : '保存短语并重新部署'}
             </button>
           </div>
         </div>

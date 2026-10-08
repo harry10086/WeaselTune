@@ -28,3 +28,7 @@ src-tauri/target/
 *.sln
 *.sw?
 *plan*.md
+
+# Local test schemes & build artifacts
+scheme/
+build_output/

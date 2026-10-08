@@ -144,6 +144,21 @@ fn get_schema_features(user_dir: String, schema_id: String) -> Vec<patcher::Sche
 }
 
 #[tauri::command]
+fn get_schema_dict_mounts(user_dir: String, schema_id: String) -> patcher::SchemaDictMountsInfo {
+    patcher::detect_schema_dict_mounts(&user_dir, &schema_id)
+}
+
+#[tauri::command]
+fn toggle_dict_mount_table(user_dir: String, schema_id: String, table_name: String, enabled: bool) -> Result<patcher::SchemaDictMountsInfo, String> {
+    patcher::toggle_dict_mount_table(&user_dir, &schema_id, &table_name, enabled)
+}
+
+#[tauri::command]
+fn get_schema_state_config(user_dir: String, schema_id: String) -> patcher::SchemaStateConfig {
+    patcher::get_schema_toggles_and_fuzzy(&user_dir, &schema_id)
+}
+
+#[tauri::command]
 fn get_sync_config(user_dir: String) -> RimeSyncConfig {
     read_installation_sync_config(&user_dir)
 }
@@ -219,6 +234,9 @@ pub fn run() {
             get_installed_dicts,
             get_system_fonts,
             get_schema_features,
+            get_schema_dict_mounts,
+            toggle_dict_mount_table,
+            get_schema_state_config,
             get_sync_config,
             save_sync_config,
             trigger_rime_sync,

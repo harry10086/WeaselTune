@@ -1,14 +1,16 @@
 import React from 'react';
-import { ColorSchemeItem, WeaselStyleConfig } from '../types';
+import { ColorSchemeItem, WeaselStyleConfig, RimeIceToggles } from '../types';
 
 interface CandidatePreviewProps {
   styleConfig: WeaselStyleConfig;
   activeScheme?: ColorSchemeItem;
+  toggles?: RimeIceToggles;
 }
 
 export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
   styleConfig,
   activeScheme,
+  toggles,
 }) => {
   const currentScheme: ColorSchemeItem = activeScheme || {
     id: 'default',
@@ -24,14 +26,20 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
     comment_text_color: '#D08770',
   };
 
+  const showSpelling = toggles !== undefined ? Boolean(toggles.spelling_hints) : true;
+  const showDictComment = !showSpelling && Boolean(toggles?.dict_comment_chinese_to_english || toggles?.chinese_english);
+
   const candidates = [
-    { num: 1, text: '雾凇', comment: 'wù sōng' },
-    { num: 2, text: '务必', comment: 'wù bì' },
-    { num: 3, text: '武汉', comment: 'wǔ hàn' },
-    { num: 4, text: '物理', comment: 'wù lǐ' },
-    { num: 5, text: '舞台', comment: 'wǔ tái' },
-    { num: 6, text: '武装', comment: 'wǔ zhuāng' },
-    { num: 7, text: '无线', comment: 'wú xiàn' },
+    { num: 1, text: '雾凇', comment: showSpelling ? 'wù sōng' : (showDictComment ? 'rime; frost' : '') },
+    { num: 2, text: '务必', comment: showSpelling ? 'wù bì' : (showDictComment ? 'must; surely' : '') },
+    { num: 3, text: '武汉', comment: showSpelling ? 'wǔ hàn' : (showDictComment ? 'Wuhan' : '') },
+    { num: 4, text: '物理', comment: showSpelling ? 'wù lǐ' : (showDictComment ? 'physics' : '') },
+    { num: 5, text: '舞台', comment: showSpelling ? 'wǔ tái' : (showDictComment ? 'stage' : '') },
+    { num: 6, text: '武装', comment: showSpelling ? 'wǔ zhuāng' : (showDictComment ? 'arms; armed' : '') },
+    { num: 7, text: '无线', comment: showSpelling ? 'wú xiàn' : (showDictComment ? 'wireless' : '') },
+    { num: 8, text: '无畏', comment: showSpelling ? 'wú wèi' : (showDictComment ? 'fearless' : '') },
+    { num: 9, text: '无奈', comment: showSpelling ? 'wú nài' : (showDictComment ? 'helpless' : '') },
+    { num: 10, text: '无聊', comment: showSpelling ? 'wú liáo' : (showDictComment ? 'boring' : '') },
   ].slice(0, styleConfig.page_size || 5);
 
   const containerStyle: React.CSSProperties = {
@@ -39,11 +47,16 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
     border: `${styleConfig.border_width || 1}px solid ${currentScheme.border_color}`,
     borderRadius: `${styleConfig.corner_radius || 8}px`,
     fontFamily: styleConfig.font_face || 'Segoe UI, Microsoft YaHei, sans-serif',
-    boxShadow: '0 16px 36px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.25)',
-    padding: styleConfig.inline_preedit ? '10px 14px' : '10px 14px 12px 14px',
+    boxShadow:
+      styleConfig.shadow_radius !== undefined && styleConfig.shadow_radius > 0
+        ? `0 ${styleConfig.shadow_radius * 2}px ${styleConfig.shadow_radius * 4}px rgba(0, 0, 0, 0.45)`
+        : styleConfig.shadow_radius === 0
+        ? 'none'
+        : '0 14px 32px rgba(0, 0, 0, 0.35)',
+    padding: `${styleConfig.margin_y ?? 8}px ${styleConfig.margin_x ?? 12}px`,
     display: 'inline-flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: `${styleConfig.spacing ?? 10}px`,
     transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
   };
 
@@ -189,7 +202,7 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
               display: 'flex',
               flexDirection: styleConfig.horizontal ? 'row' : 'column',
               alignItems: styleConfig.horizontal ? 'center' : 'flex-start',
-              gap: styleConfig.horizontal ? '14px' : '6px',
+              gap: `${styleConfig.candidate_spacing ?? (styleConfig.horizontal ? 12 : 6)}px`,
             }}
           >
             {candidates.map((cand, idx) => {
@@ -207,6 +220,10 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
                 ? (currentScheme.hilited_comment_text_color || currentScheme.candidate_text_color)
                 : (currentScheme.comment_text_color || currentScheme.label_color || currentScheme.candidate_text_color);
 
+              const effectiveHilitedRadius = styleConfig.hilited_corner_radius !== undefined
+                ? styleConfig.hilited_corner_radius
+                : Math.max(2, (styleConfig.corner_radius || 6) - 3);
+
               return (
                 <div
                   key={cand.num}
@@ -215,7 +232,7 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
                     alignItems: 'center',
                     gap: '6px',
                     padding: isHilited ? '5px 10px' : '5px 8px',
-                    borderRadius: `${Math.max(2, (styleConfig.corner_radius || 6) - 3)}px`,
+                    borderRadius: `${effectiveHilitedRadius}px`,
                     backgroundColor: candBack,
                     color: candText,
                     cursor: 'pointer',
@@ -226,7 +243,8 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
                   {/* 序号 */}
                   <span
                     style={{
-                      fontSize: `${Math.max(12, (styleConfig.font_point || 14) - 2)}px`,
+                      fontFamily: styleConfig.label_font_face || styleConfig.font_face || 'inherit',
+                      fontSize: `${styleConfig.label_font_point ?? Math.max(11, (styleConfig.font_point || 14) - 2)}px`,
                       color: candLabel,
                     }}
                   >
@@ -242,11 +260,12 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
                     {cand.text}
                   </span>
 
-                  {/* 拼音注释 */}
+                  {/* 拼音注释 / 释义 */}
                   {cand.comment && (
                     <span
                       style={{
-                        fontSize: `${Math.max(11, (styleConfig.font_point || 14) - 3)}px`,
+                        fontFamily: styleConfig.comment_font_face || styleConfig.font_face || 'inherit',
+                        fontSize: `${styleConfig.comment_font_point ?? Math.max(11, (styleConfig.font_point || 14) - 3)}px`,
                         color: candComment,
                         marginLeft: '3px',
                       }}

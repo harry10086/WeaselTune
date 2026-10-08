@@ -36,8 +36,17 @@ export interface WeaselStyleConfig {
   color_scheme_dark?: string;
   font_face: string;
   font_point: number;
+  comment_font_face?: string;
+  comment_font_point?: number;
+  label_font_face?: string;
+  label_font_point?: number;
   corner_radius: number;
+  hilited_corner_radius?: number;
   border_width: number;
+  margin_x?: number;
+  margin_y?: number;
+  spacing?: number;
+  candidate_spacing?: number;
   inline_preedit: boolean;
   display_tray_icon?: boolean;
   show_notifications?: boolean;
@@ -58,6 +67,7 @@ export interface KeyBindingsConfig {
   control_l: string;
   control_r: string;
   good_old_caps_lock?: boolean;
+  switcher_hotkeys?: string[]; // 方案选单切换快捷键, 如 ["Control+grave", "F4"]
 }
 
 export interface FuzzyPinyinConfig {
@@ -81,6 +91,7 @@ export interface RimeIceToggles {
   full_shape: boolean;         // 全半角切换 (false: 半角, true: 全角)
   ascii_punct: boolean;        // 中英文标点 (false: 中文标点, true: 英文标点)
   search_single_char: boolean; // 词单字模式 (false: 词组优先, true: 单字优先)
+  spelling_hints?: boolean;    // 候选词旁注音/拼音显示 (spelling_hints)
   dict_comment: boolean;
   dict_comment_chinese_to_english: boolean;
   dict_comment_english_to_chinese: boolean;
@@ -98,6 +109,15 @@ export interface RimeIceToggles {
   enable_caps_word: boolean;  // 大写字母直接造词 (Shift+字母)
   enable_number_word: boolean;// 数字参与拼音造词 (如 5G网络、3D打印)
   enable_v_symbol: boolean;   // v 模式符号映射
+  // 方案专属特色开关
+  chinese_english?: boolean;  // 中英互译模式 (白霜 / 万象)
+  mars?: boolean;            // 火星文输出模式 (白霜)
+  chaifen?: boolean;         // 墨奇部件拆字字根提示 (白霜)
+  pin_cand?: boolean;        // 高频候选临时置顶 (白霜)
+  tone_display?: boolean;    // 实时声调全拼显示 (薄荷 / 万象)
+  super_tips?: boolean;      // 超级实时数据提示区 (万象)
+  charset_filter?: boolean;  // 字符集过滤 (万象: 8105通规 / 全字表)
+  abbrev?: boolean;          // 公共简码加速匹配 (万象)
 }
 
 export interface SchemaItem {
@@ -124,6 +144,24 @@ export interface CustomDictItem {
   description: string;
   enabled: boolean;
   size_kb: number;
+}
+
+export interface SchemaDictMountItem {
+  name: string;
+  relative_path: string;
+  description: string;
+  enabled: boolean;
+  exists: boolean;
+  size_kb: number;
+}
+
+export interface SchemaDictMountsInfo {
+  schema_id: string;
+  schema_name: string;
+  primary_dict_file: string;
+  primary_dict_path: string;
+  mounted_tables: SchemaDictMountItem[];
+  is_ice_extended_managed: boolean;
 }
 
 export interface UnifiedFullConfig {

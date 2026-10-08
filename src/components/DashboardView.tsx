@@ -37,7 +37,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
               <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
-                小狼毫配置调优中心 (WeaselTune)
+                小狼毫配置中心
               </span>
               <span
                 style={{
@@ -277,8 +277,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             }}
             className="glow-card"
           >
-            <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '6px', color: '#34d399' }}>⚙ 雾凇拼音功能与词库</div>
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.5' }}>41448大字表、模糊音、Emoji、双向词典释义</div>
+            <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '6px', color: '#34d399' }}>⚙ 方案特性与词库定制</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.5' }}>方案特性微调、词库挂载、模糊音运算及输入扩展</div>
           </button>
 
           <button

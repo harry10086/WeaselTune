@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FuzzyPinyinConfig, RimeIceToggles, DictFileInfo, CustomDictItem, SchemaItem, SchemeFeatureItem } from '../types';
+import { FuzzyPinyinConfig, RimeIceToggles, DictFileInfo, CustomDictItem, SchemaItem, SchemeFeatureItem, SchemaDictMountsInfo } from '../types';
 import {
   Smile,
   Sparkles,
@@ -22,6 +22,12 @@ import {
   X,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+
+interface SchemaStateConfig {
+  schema_id: string;
+  fuzzy_pinyin: FuzzyPinyinConfig;
+  toggles: RimeIceToggles;
+}
 
 interface RimeIceViewProps {
   fuzzy: FuzzyPinyinConfig;
@@ -52,8 +58,15 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
     const firstEnabled = schemas.find((s) => s.enabled);
     return firstEnabled ? firstEnabled.id : 'rime_ice';
   });
+
+  const isIce = selectedSchemaId === 'rime_ice';
+  const isFrost = selectedSchemaId.includes('frost');
+  const isMint = selectedSchemaId.includes('mint');
+  const isWanxiang = selectedSchemaId.includes('wanxiang');
   const [features, setFeatures] = useState<SchemeFeatureItem[]>([]);
   const [featuresLoading, setFeaturesLoading] = useState<boolean>(false);
+  const [mountsInfo, setMountsInfo] = useState<SchemaDictMountsInfo | null>(null);
+  const [mountsLoading, setMountsLoading] = useState<boolean>(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [copiedTrigger, setCopiedTrigger] = useState<string | null>(null);
 
@@ -152,6 +165,28 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
       .then((res) => setFeatures(res))
       .catch((err) => console.error('Failed to get schema features:', err))
       .finally(() => setFeaturesLoading(false));
+
+    setMountsLoading(true);
+    invoke<SchemaDictMountsInfo>('get_schema_dict_mounts', {
+      userDir,
+      schemaId: selectedSchemaId,
+    })
+      .then((res) => setMountsInfo(res))
+      .catch((err) => console.error('Failed to get schema dict mounts:', err))
+      .finally(() => setMountsLoading(false));
+
+    // 按方案动态拉取该方案专属的模糊音与特性开关状态
+    invoke<SchemaStateConfig>('get_schema_state_config', {
+      userDir,
+      schemaId: selectedSchemaId,
+    })
+      .then((res) => {
+        if (res) {
+          onFuzzyChange(res.fuzzy_pinyin);
+          onTogglesChange(res.toggles);
+        }
+      })
+      .catch((err) => console.error('Failed to get schema state config:', err));
   }, [userDir, selectedSchemaId]);
 
   const handleCopy = (text: string) => {
@@ -160,12 +195,77 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
     setTimeout(() => setCopiedTrigger(null), 1800);
   };
 
+  const handleToggleMountTable = async (tableName: string, enabled: boolean) => {
+    if (!userDir) return;
+    // 乐观更新挂载列表状态
+    if (mountsInfo) {
+      setMountsInfo({
+        ...mountsInfo,
+        mounted_tables: mountsInfo.mounted_tables.map((t) =>
+          t.name === tableName ? { ...t, enabled } : t
+        ),
+      });
+    }
+
+    // 若当前为雾凇拼音，联动更新对应 toggles 状态
+    if (selectedSchemaId === 'rime_ice') {
+      if (tableName.includes('41448')) {
+        updateToggles({ dict_large_char: enabled });
+      } else if (tableName.includes('tencent')) {
+        updateToggles({ dict_tencent: enabled });
+      } else if (tableName.endsWith('ext')) {
+        updateToggles({ dict_ext: enabled });
+      } else if (tableName.endsWith('others')) {
+        updateToggles({ dict_others: enabled });
+      }
+    }
+
+    try {
+      const updated = await invoke<SchemaDictMountsInfo>('toggle_dict_mount_table', {
+        userDir,
+        schemaId: selectedSchemaId,
+        tableName,
+        enabled,
+      });
+      setMountsInfo(updated);
+      showNotice(`${enabled ? '已开启挂载' : '已停用挂载'}: ${tableName}`);
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (err: any) {
+      showNotice(`切换挂载状态失败: ${err?.toString() || err}`);
+      invoke<SchemaDictMountsInfo>('get_schema_dict_mounts', {
+        userDir,
+        schemaId: selectedSchemaId,
+      })
+        .then((res) => setMountsInfo(res))
+        .catch(() => {});
+    }
+  };
+
   const updateFuzzy = (partial: Partial<FuzzyPinyinConfig>) => {
     onFuzzyChange({ ...fuzzy, ...partial });
   };
 
   const updateToggles = (partial: Partial<RimeIceToggles>) => {
-    onTogglesChange({ ...toggles, ...partial });
+    let next = { ...toggles, ...partial };
+    // 互斥处理：候选词拼音提示 (spelling_hints) 与 中英文双向释义 (dict_comment_... / chinese_english)
+    if (partial.spelling_hints === true) {
+      next.dict_comment_chinese_to_english = false;
+      next.dict_comment_english_to_chinese = false;
+      next.chinese_english = false;
+      showNotice('已开启候选词旁拼音标注（已自动互斥关闭中英文释义）');
+    } else if (
+      partial.dict_comment_chinese_to_english === true ||
+      partial.dict_comment_english_to_chinese === true ||
+      partial.chinese_english === true
+    ) {
+      if (next.spelling_hints) {
+        next.spelling_hints = false;
+        showNotice('已开启中英文释义（已自动互斥关闭候选词旁拼音标注）');
+      }
+    }
+    onTogglesChange(next);
   };
 
   const filteredFeatures = categoryFilter === 'all'
@@ -187,9 +287,8 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
           {/* 方案切换选择 */}
           {schemas.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>查看方案特性：</span>
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                {schemas.slice(0, 5).map((s) => {
+                {schemas.map((s) => {
                   const isCur = s.id === selectedSchemaId;
                   return (
                     <button
@@ -338,137 +437,167 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
           </div>
         )}
       </div>
-      {/* 词库与字表定制专区 (rime_ice.dict.yaml 对应配置) */}
+      {/* 词库与字表定制专区 (按方案动态智能解析真实主词库) */}
       <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
-          <Database size={20} color="#34d399" />
-          <span>扩展词库与字表挂载清单</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)' }}>
+            <Database size={20} color="#34d399" />
+            <span>扩展词库与字表挂载清单</span>
+            {mountsInfo && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(52, 211, 153, 0.15)',
+                  color: '#34d399',
+                  border: '1px solid rgba(52, 211, 153, 0.3)',
+                }}
+              >
+                {mountsInfo.schema_name} 主词库
+              </span>
+            )}
+          </div>
+
+          {mountsInfo && mountsInfo.primary_dict_path && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="mono" style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                入口文件: {mountsInfo.primary_dict_file}
+              </span>
+              <button
+                type="button"
+                onClick={() => invoke('open_file_in_editor', { path: mountsInfo.primary_dict_path })}
+                title="在编辑器中直接查看或修改此方案主词库入口文件"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--accent)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <ExternalLink size={12} /> 打开主词库入口
+              </button>
+            </div>
+          )}
         </div>
+
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px' }}>
-          选择性挂载或卸载词库与大字表，兼顾词汇丰富度与小狼毫部署速度。下方的状态重置开关与模糊音规则已自动兼容雾凇拼音、白霜拼音、薄荷输入法、万象输入法等现代方案。
+          {mountsInfo ? (
+            <>
+              当前展示方案【<strong style={{ color: 'var(--text-main)' }}>{mountsInfo.schema_name}</strong>】真实引用的词典挂载清单（共 {mountsInfo.mounted_tables.length} 个词典）。
+              不同输入方案（薄荷、万象、白霜、雾凇等）拥有各自独立的主词典结构，已全面实现动态精准识别与按需挂载开关。
+            </>
+          ) : (
+            '动态解析当前方案主词典中实际挂载的字表与词典清单，兼顾词汇丰富度与小狼毫部署速度。'
+          )}
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-          {/* 41448 大字表 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: toggles.dict_large_char ? '#34d399' : 'var(--text-main)' }}>
-                41448 通用大字表（生僻字）
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                收录更多生僻字与繁复字（默认关闭以提升速度）
-              </div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.dict_large_char}
-                onChange={(e) => updateToggles({ dict_large_char: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
+        {/* 动态挂载卡片网格 */}
+        {mountsLoading ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '13px' }}>
+            正在动态解析该方案的主词库入口与挂载清单...
           </div>
+        ) : mountsInfo && mountsInfo.mounted_tables.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginBottom: selectedSchemaId === 'rime_ice' ? '20px' : '0' }}>
+            {mountsInfo.mounted_tables.map((table) => (
+              <div
+                key={table.name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  border: table.enabled ? '1px solid var(--border)' : '1px dashed var(--border-light)',
+                  opacity: table.enabled ? 1 : 0.65,
+                  gap: '12px',
+                }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px', flexWrap: 'wrap' }}>
+                    <span className="mono" style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)' }}>
+                      {table.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        fontWeight: 700,
+                        backgroundColor: table.enabled ? 'rgba(52, 211, 153, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                        color: table.enabled ? '#34d399' : 'var(--text-dim)',
+                      }}
+                    >
+                      {table.enabled ? '已挂载' : '注释未启用'}
+                    </span>
+                    {table.exists ? (
+                      <span className="mono" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                        {table.size_kb} KB
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '10px', color: '#f59e0b', fontWeight: 600 }}>
+                        (外部依赖)
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                    {table.description}
+                  </div>
+                </div>
 
-          {/* 腾讯词向量 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: toggles.dict_tencent ? '#34d399' : 'var(--text-main)' }}>
-                腾讯词向量大词库 (tencent)
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                海量高质量词汇，大幅提升长词选词命中率
-              </div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.dict_tencent}
-                onChange={(e) => updateToggles({ dict_tencent: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
+                <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (userDir) {
+                        const full = `${userDir}/${table.relative_path}`;
+                        invoke('open_file_in_editor', { path: full }).catch(() => {
+                          showNotice(`未找到物理文件: ${table.relative_path}`);
+                        });
+                      }
+                    }}
+                    title="在系统编辑器中打开此分词典"
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      backgroundColor: 'var(--bg-primary)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    查看
+                  </button>
 
-          {/* 扩展词库 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: toggles.dict_ext ? '#34d399' : 'var(--text-main)' }}>
-                扩展词库 (ext)
+                  <label className="toggle-switch" title={table.enabled ? '点击停用挂载' : '点击启用挂载'}>
+                    <input
+                      type="checkbox"
+                      checked={table.enabled}
+                      onChange={(e) => handleToggleMountTable(table.name, e.target.checked)}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
               </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                地理地名、专业术语等独立扩展词表
-              </div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.dict_ext}
-                onChange={(e) => updateToggles({ dict_ext: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
+            ))}
           </div>
+        ) : (
+          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '13px' }}>
+            未在此方案中解析到独立的 import_tables 挂载清单，方案可能使用单体词典或内置词表。
+          </div>
+        )}
 
-          {/* 杂项成语诗词 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: toggles.dict_others ? '#34d399' : 'var(--text-main)' }}>
-                成语诗词与网络词 (others)
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                古诗名句、网络流行热词与辅助杂项
-              </div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.dict_others}
-                onChange={(e) => updateToggles({ dict_others: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
 
-          {/* 大写字母直接参与造词 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: toggles.enable_caps_word ? '#34d399' : 'var(--text-main)' }}>
-                大写字母造词 (Shift+字母)
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                如输 zuogeDNAjiance 可得 “做个DNA检测”
-              </div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.enable_caps_word}
-                onChange={(e) => updateToggles({ enable_caps_word: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
-
-          {/* 数字拼音混合造词 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: toggles.enable_number_word ? '#34d399' : 'var(--text-main)' }}>
-                数字参与拼音造词
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                如输 5Gwangluo 自动注音得 “5G网络”、“3D打印”
-              </div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.enable_number_word}
-                onChange={(e) => updateToggles({ enable_number_word: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
-        </div>
 
         {/* 用户外挂扩展词库无损挂载专区 */}
         <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
@@ -549,7 +678,15 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             }}
           >
             💡 <strong style={{ color: 'var(--text-main)' }}>无损外挂机制：</strong>
-            WeaselTune 会自动在您的 Rime 用户目录生成 <code className="mono" style={{ color: '#38bdf8' }}>rime_ice.extended.dict.yaml</code>，同时导入原版雾凇主词库与您勾选的外挂词库，并通过补丁挂载到主方案。<strong style={{ color: '#34d399' }}>完全不改动原版 rime_ice.dict.yaml 文件</strong>！后续无论是更新拉取雾凇拼音新版还是覆盖词库，您的自定义扩展词库都绝不冲突、绝不丢失。
+            {isIce ? (
+              <>
+                会自动在您的 Rime 用户目录生成 <code className="mono" style={{ color: '#38bdf8' }}>rime_ice.extended.dict.yaml</code>，同时导入原版雾凇主词库与您勾选的外挂词库，并通过补丁挂载到主方案。<strong style={{ color: '#34d399' }}>完全不改动原版 rime_ice.dict.yaml 文件</strong>！后续无论是更新拉取方案新版还是覆盖词库，您的自定义扩展词库都绝不冲突、绝不丢失。
+              </>
+            ) : (
+              <>
+                您导入或新建的自定义词库文件（存放于 <code className="mono" style={{ color: '#38bdf8' }}>custom_dicts/</code> 目录）可直接作为独立词库或挂载项引入当前方案（<code className="mono" style={{ color: '#38bdf8' }}>{mountsInfo?.primary_dict_file || `${selectedSchemaId}.dict.yaml`}</code>）。<strong style={{ color: '#34d399' }}>独立词库与方案底层文件完全隔离</strong>，后续无论方案升级还是词库覆盖，您的自定义词表均安全无虞。
+              </>
+            )}
           </div>
 
           {actionNotice && (
@@ -960,7 +1097,7 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
           <span>拼音运算与模糊音（Speller Algebra）</span>
         </div>
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px' }}>
-          勾选容易读错或混淆的发音规则，自动生成补丁（写入 <span className="mono" style={{ color: '#38bdf8' }}>rime_ice.custom.yaml</span>）。
+          勾选容易读错或混淆的发音规则，自动生成补丁（写入 <span className="mono" style={{ color: '#38bdf8' }}>{selectedSchemaId}.custom.yaml</span>）。
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
@@ -1102,83 +1239,90 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
         </div>
       </div>
 
-      {/* 词典释义滤镜 (Lua) */}
-      <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
-          <BookMarked size={20} color="#34d399" />
-          <span>中英双向词典释义滤镜（Lua 增强）</span>
-        </div>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px' }}>
-          在候选框右侧直接展示汉译英（CC-CEDICT）或英译汉（ECDICT）词条释义。
-        </p>
+      {/* 词典释义滤镜 (Lua) - 仅雾凇拼音定制版可用 */}
+      {selectedSchemaId === 'rime_ice' && (
+        <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
+            <BookMarked size={20} color="#34d399" />
+            <span>中英双向词典释义滤镜（Lua 增强）</span>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '14px' }}>
+            在候选框右侧直接展示汉译英（CC-CEDICT）或英译汉（ECDICT）词条释义。
+          </p>
+          {Boolean(toggles.spelling_hints) && (
+            <div style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '10px', backgroundColor: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.3)', color: '#fbbf24', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>⚠️ 当前已开启「候选词旁显示拼音」，由于两者共用候选词注释槽位，词典释义已自动保持互斥关闭状态。如需启用释义，请打开下方开关（将自动关闭拼音标注）。</span>
+            </div>
+          )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>中文 → 英文释义</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>打汉字候选时展示对应英文</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>中文 → 英文释义</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>打汉字候选时展示对应英文</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={toggles.dict_comment_chinese_to_english}
+                    onChange={(e) => updateToggles({ dict_comment_chinese_to_english: e.target.checked })}
+                  />
+                  <span className="slider"></span>
+                </label>
               </div>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={toggles.dict_comment_chinese_to_english}
-                  onChange={(e) => updateToggles({ dict_comment_chinese_to_english: e.target.checked })}
-                />
-                <span className="slider"></span>
-              </label>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>英文 → 中文释义</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>打英文单词候选时展示对应中文含义</div>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={toggles.dict_comment_english_to_chinese}
+                    onChange={(e) => updateToggles({ dict_comment_english_to_chinese: e.target.checked })}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>英文 → 中文释义</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>打英文单词候选时展示对应中文含义</div>
-              </div>
-              <label className="toggle-switch">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>单条候选显示最大释义项数</span>
+                  <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700 }}>{toggles.dict_comment_max_defs} 项</span>
+                </div>
                 <input
-                  type="checkbox"
-                  checked={toggles.dict_comment_english_to_chinese}
-                  onChange={(e) => updateToggles({ dict_comment_english_to_chinese: e.target.checked })}
+                  type="range"
+                  min="1"
+                  max="5"
+                  value={toggles.dict_comment_max_defs}
+                  onChange={(e) => updateToggles({ dict_comment_max_defs: parseInt(e.target.value) || 2 })}
+                  style={{ width: '100%', accentColor: '#34d399', cursor: 'pointer' }}
                 />
-                <span className="slider"></span>
-              </label>
+              </div>
+
+              <div style={{ padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>释义文字最大字符上限</span>
+                  <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700 }}>{toggles.dict_comment_max_length} 字</span>
+                </div>
+                <input
+                  type="range"
+                  min="20"
+                  max="80"
+                  step="5"
+                  value={toggles.dict_comment_max_length}
+                  onChange={(e) => updateToggles({ dict_comment_max_length: parseInt(e.target.value) || 50 })}
+                  style={{ width: '100%', accentColor: '#34d399', cursor: 'pointer' }}
+                />
+              </div>
             </div>
           </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>单条候选显示最大释义项数</span>
-                <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700 }}>{toggles.dict_comment_max_defs} 项</span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="5"
-                value={toggles.dict_comment_max_defs}
-                onChange={(e) => updateToggles({ dict_comment_max_defs: parseInt(e.target.value) || 2 })}
-                style={{ width: '100%', accentColor: '#34d399', cursor: 'pointer' }}
-              />
-            </div>
-
-            <div style={{ padding: '12px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>释义文字最大字符上限</span>
-                <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700 }}>{toggles.dict_comment_max_length} 字</span>
-              </div>
-              <input
-                type="range"
-                min="20"
-                max="80"
-                step="5"
-                value={toggles.dict_comment_max_length}
-                onChange={(e) => updateToggles({ dict_comment_max_length: parseInt(e.target.value) || 50 })}
-                style={{ width: '100%', accentColor: '#34d399', cursor: 'pointer' }}
-              />
-            </div>
-          </div>
         </div>
-      </div>
+      )}
 
       {/* Emoji、反查及 Markdown 居中 */}
       <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px' }}>
@@ -1188,6 +1332,63 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}>
+          {/* 候选词旁显示拼音 (注音提示) */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.spelling_hints ? '1px solid #38bdf8' : '1px solid var(--border)', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', flexShrink: 0 }}>
+                <Languages size={18} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>候选词旁显示拼音 (注音提示)</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      backgroundColor: toggles.spelling_hints ? 'rgba(56, 189, 248, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                      color: toggles.spelling_hints ? '#38bdf8' : '#f87171',
+                    }}
+                  >
+                    {toggles.spelling_hints ? '已开启' : '已关闭'}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(251, 191, 36, 0.12)',
+                      color: '#fbbf24',
+                    }}
+                  >
+                    与中英文释义互斥
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                  {isMint
+                    ? '在候选词右侧实时标注全拼音标（薄荷拼音支持带调音标，开启后同步在输入编码区呈现优雅带调拼音）。'
+                    : '在候选词右侧实时标注对应的全拼音标（如 雾凇 [wù sōng]）。开启时将自动互斥关闭中英文释义。'}
+                </div>
+              </div>
+            </div>
+            <label className="toggle-switch" style={{ flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={Boolean(toggles.spelling_hints)}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  updateToggles({
+                    spelling_hints: val,
+                    ...(isMint ? { tone_display: val } : {}),
+                  });
+                }}
+              />
+              <span className="slider"></span>
+            </label>
+          </div>
+
           {/* 简繁切换 */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.traditionalization ? '1px solid #a78bfa' : '1px solid var(--border)', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1299,44 +1500,46 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             </label>
           </div>
 
-          {/* 词组 / 单字模式 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.search_single_char ? '1px solid #fbbf24' : '1px solid var(--border)', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', flexShrink: 0 }}>
-                <Sparkles size={18} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>单字 / 词组输入</span>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 7px',
-                      borderRadius: '4px',
-                      backgroundColor: toggles.search_single_char ? 'rgba(251, 191, 36, 0.2)' : 'rgba(56, 189, 248, 0.15)',
-                      color: toggles.search_single_char ? '#fbbf24' : '#38bdf8',
-                    }}
-                  >
-                    当前: {toggles.search_single_char ? '单字检索优先' : '词组连续输入'}
-                  </span>
+          {/* 词组 / 单字模式 (雾凇 / 白霜) */}
+          {(isIce || isFrost) && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.search_single_char ? '1px solid #fbbf24' : '1px solid var(--border)', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', flexShrink: 0 }}>
+                  <Sparkles size={18} />
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-                  开：单字排前查生僻字 / 关：词组连打优先（推荐）
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>单字 / 词组输入</span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 7px',
+                        borderRadius: '4px',
+                        backgroundColor: toggles.search_single_char ? 'rgba(251, 191, 36, 0.2)' : 'rgba(56, 189, 248, 0.15)',
+                        color: toggles.search_single_char ? '#fbbf24' : '#38bdf8',
+                      }}
+                    >
+                      当前: {toggles.search_single_char ? '单字检索优先' : '词组连续输入'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                    开：单字排前查生僻字 / 关：词组连打优先（推荐）
+                  </div>
                 </div>
               </div>
+              <label className="toggle-switch" style={{ flexShrink: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={toggles.search_single_char}
+                  onChange={(e) => updateToggles({ search_single_char: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
             </div>
-            <label className="toggle-switch" style={{ flexShrink: 0 }}>
-              <input
-                type="checkbox"
-                checked={toggles.search_single_char}
-                onChange={(e) => updateToggles({ search_single_char: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
+          )}
 
-          {/* Emoji 候选 */}
+          {/* Emoji 候选 (全方案通用) */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.emoji ? '1px solid #f472b6' : '1px solid var(--border)', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(244, 114, 182, 0.15)', color: '#f472b6', flexShrink: 0 }}>
@@ -1373,53 +1576,143 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             </label>
           </div>
 
-          {/* 部件拆字反查 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>部件拆字反查 (radical_pinyin)</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>通过拆分部首输入生僻字</div>
+          {/* 部件拆字反查 (雾凇 / 薄荷 / 白霜) */}
+          {(isIce || isMint || isFrost) && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>部件拆字反查 (radical_pinyin)</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>通过拆分部首输入生僻字（输入 u 引导）</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={toggles.enable_radical_pinyin}
+                  onChange={(e) => updateToggles({ enable_radical_pinyin: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
             </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.enable_radical_pinyin}
-                onChange={(e) => updateToggles({ enable_radical_pinyin: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
+          )}
 
-          {/* 英文混输补全 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>英文混输补全 (melt_eng)</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>无需切换模式，直接打英文单词并联想</div>
+          {/* 英文混输补全 (雾凇 / 薄荷 / 白霜) */}
+          {(isIce || isMint || isFrost) && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>英文混输补全 (melt_eng)</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>无需切换模式，直接打英文单词并联想</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={toggles.enable_melt_eng}
+                  onChange={(e) => updateToggles({ enable_melt_eng: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
             </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.enable_melt_eng}
-                onChange={(e) => updateToggles({ enable_melt_eng: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
+          )}
 
-          {/* Markdown 符号居中 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>Markdown 成对符号自动居中</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>打 ** 或 `` 光标自动移到符号正中间</div>
+
+
+          {/* 火星文输出模式 (白霜拼音) */}
+          {isFrost && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.mars ? '1px solid #f472b6' : '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>火星文输出模式 (mars)</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>打字直接输出非主流火星文字符</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.mars)}
+                  onChange={(e) => updateToggles({ mars: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
             </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={toggles.enable_markdown}
-                onChange={(e) => updateToggles({ enable_markdown: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
+          )}
+
+          {/* 墨奇拆字字根提示 (白霜拼音) */}
+          {isFrost && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.chaifen ? '1px solid #fbbf24' : '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>墨奇拆分字根提示 (chaifen)</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>候选词右侧显示汉字的拆分偏旁与墨奇字根说明</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.chaifen)}
+                  onChange={(e) => updateToggles({ chaifen: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          )}
+
+          {/* 高频候选置顶 (白霜拼音) */}
+          {isFrost && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.pin_cand ? '1px solid #34d399' : '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>高频候选置顶 (pin_cand)</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>智能置顶用户最高频输入的候选词</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.pin_cand)}
+                  onChange={(e) => updateToggles({ pin_cand: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          )}
+
+          {/* 超级实时数据提示 (万象拼音) */}
+          {isWanxiang && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.super_tips ? '1px solid #38bdf8' : '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>超级实时数据提示 (super_tips)</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>编码区右侧显示表情、翻译、车牌、符号等实时关联提示</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.super_tips)}
+                  onChange={(e) => updateToggles({ super_tips: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          )}
+
+          {/* 公共简码模式 (万象拼音) */}
+          {isWanxiang && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.abbrev ? '1px solid #34d399' : '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>公共简码加速匹配 (abbrev)</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>开启公共简码加速匹配，极速打出高频短语</div>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.abbrev)}
+                  onChange={(e) => updateToggles({ abbrev: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          )}
         </div>
       </div>
 

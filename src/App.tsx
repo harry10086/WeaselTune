@@ -195,6 +195,7 @@ export function App() {
           full_shape: false,
           ascii_punct: false,
           search_single_char: false,
+          spelling_hints: false,
           dict_comment: true,
           dict_comment_chinese_to_english: true,
           dict_comment_english_to_chinese: true,
@@ -263,6 +264,18 @@ export function App() {
     if (!config || !env) return;
     setSaving(true);
     try {
+      // 联动保存自定义短语：若在短语页面修改未单独保存，在此一同写入 custom_phrase.txt
+      if (phrases && phrases.length > 0) {
+        try {
+          await invoke('save_phrases', {
+            userDir: env.rime_user_dir,
+            items: phrases,
+          });
+        } catch (phraseErr) {
+          console.warn('Auto-saving phrases during deployment failed:', phraseErr);
+        }
+      }
+
       const res = await invoke<DeployResult>('save_config_and_deploy', {
         userDir: env.rime_user_dir,
         config,
@@ -419,10 +432,9 @@ export function App() {
             }}
           />
           <div>
-            <div style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
+            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
               WeaselTune
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>小狼毫图形配置调优中心</div>
           </div>
         </div>
 
@@ -592,6 +604,7 @@ export function App() {
                   styleConfig={config.style}
                   presetSchemes={config.preset_schemes}
                   defaultSchemes={defaultSchemes}
+                  toggles={config.rime_ice_toggles}
                   onChange={(newStyle) => setConfig((prev) => prev ? { ...prev, style: newStyle } : prev)}
                   onSchemeChange={handleSchemeChange}
                 />
@@ -633,7 +646,9 @@ export function App() {
               {activeTab === 'phrases' && (
                 <PhrasesView
                   phrases={phrases}
+                  onPhrasesChange={(newPhrases) => setPhrases(newPhrases)}
                   onSavePhrases={handleSavePhrases}
+                  onSaveAndDeploy={() => handleSaveAndDeploy(true)}
                   saving={saving}
                   userDir={env?.rime_user_dir}
                 />

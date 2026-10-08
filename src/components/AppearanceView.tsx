@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ColorSchemeItem, WeaselStyleConfig } from '../types';
+import { ColorSchemeItem, WeaselStyleConfig, RimeIceToggles } from '../types';
 import { CandidatePreview } from './CandidatePreview';
 import {
   Palette,
@@ -27,6 +27,7 @@ interface AppearanceViewProps {
   styleConfig: WeaselStyleConfig;
   presetSchemes: ColorSchemeItem[];
   defaultSchemes?: ColorSchemeItem[];
+  toggles?: RimeIceToggles;
   onChange: (newStyle: WeaselStyleConfig) => void;
   onSchemeChange: (updatedScheme: ColorSchemeItem) => void;
 }
@@ -35,6 +36,7 @@ export const AppearanceView: React.FC<AppearanceViewProps> = ({
   styleConfig,
   presetSchemes,
   defaultSchemes = [],
+  toggles,
   onChange,
   onSchemeChange,
 }) => {
@@ -270,7 +272,7 @@ hilited_candidate_label_color: 0xFFD9F99D`;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
       {/* 实时渲染预览区 (所见即所得，颜色调整立刻生效) */}
-      <CandidatePreview styleConfig={styleConfig} activeScheme={currentScheme} />
+      <CandidatePreview styleConfig={styleConfig} activeScheme={currentScheme} toggles={toggles} />
 
       {/* 选项配置面板 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '18px' }}>
@@ -774,36 +776,241 @@ hilited_candidate_label_color: 0xFFD9F99D`;
             <input
               type="range"
               min="10"
-              max="26"
+              max="28"
               value={styleConfig.font_point}
               onChange={(e) => updateStyle({ font_point: parseInt(e.target.value) || 14 })}
               style={{ width: '100%', accentColor: '#fbbf24', cursor: 'pointer' }}
             />
           </div>
+
+          {/* 拼音/释义/注释 (Comment) 字体与字号 */}
+          <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>拼音 / 释义字号 (comment_font_point)</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', fontWeight: 600 }}>
+                  小狼毫原生
+                </span>
+              </div>
+              <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 700 }}>{styleConfig.comment_font_point ?? 12} pt</span>
+            </div>
+            <input
+              type="range"
+              min="8"
+              max="24"
+              value={styleConfig.comment_font_point ?? 12}
+              onChange={(e) => updateStyle({ comment_font_point: parseInt(e.target.value) || 12 })}
+              style={{ width: '100%', accentColor: '#38bdf8', cursor: 'pointer' }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>独立拼音/释义字体 (comment_font_face)</label>
+                {styleConfig.comment_font_face && (
+                  <button
+                    type="button"
+                    onClick={() => updateStyle({ comment_font_face: undefined })}
+                    style={{ fontSize: '11px', color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}
+                  >
+                    重置为继承主字体
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                value={styleConfig.comment_font_face || ''}
+                onChange={(e) => updateStyle({ comment_font_face: e.target.value.trim() ? e.target.value : undefined })}
+                placeholder="留空默认跟随主候选字体，可设为 Segoe UI、Cascadia Code、霞鹜文楷等"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--bg-elevated)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border)',
+                  fontSize: '13px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* 序号标签 (Label) 字体与字号 */}
+          <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>序号标签字号 (label_font_point)</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(52, 211, 153, 0.15)', color: '#34d399', fontWeight: 600 }}>
+                  1. 2. 3. 序号
+                </span>
+              </div>
+              <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700 }}>{styleConfig.label_font_point ?? 12} pt</span>
+            </div>
+            <input
+              type="range"
+              min="8"
+              max="24"
+              value={styleConfig.label_font_point ?? 12}
+              onChange={(e) => updateStyle({ label_font_point: parseInt(e.target.value) || 12 })}
+              style={{ width: '100%', accentColor: '#34d399', cursor: 'pointer' }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>独立序号字体 (label_font_face)</label>
+                {styleConfig.label_font_face && (
+                  <button
+                    type="button"
+                    onClick={() => updateStyle({ label_font_face: undefined })}
+                    style={{ fontSize: '11px', color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}
+                  >
+                    重置为继承主字体
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                value={styleConfig.label_font_face || ''}
+                onChange={(e) => updateStyle({ label_font_face: e.target.value.trim() ? e.target.value : undefined })}
+                placeholder="留空默认跟随主候选字体，可设为 Segoe UI、Consolas 等"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--bg-elevated)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border)',
+                  fontSize: '13px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* 边框与圆角设置 */}
+        {/* 窗口内边距与间距排版设置 (Layout) */}
+        <div className="glass-panel glow-card" style={{ padding: '22px', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '16px', fontWeight: 700, color: 'var(--text-main)' }}>
+            <Sliders size={18} color="#06b6d4" />
+            <span>窗口内边距与间距排版 (Layout & Spacing)</span>
+          </div>
+
+          {/* 水平边距 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>窗口水平内边距 (margin_x)</label>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>候选窗左右两侧距离内容的留白距离</div>
+              </div>
+              <span style={{ fontSize: '14px', color: '#06b6d4', fontWeight: 700 }}>{styleConfig.margin_x ?? 12} px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="32"
+              value={styleConfig.margin_x ?? 12}
+              onChange={(e) => updateStyle({ margin_x: parseInt(e.target.value) || 0 })}
+              style={{ width: '100%', accentColor: '#06b6d4', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* 垂直边距 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>窗口垂直内边距 (margin_y)</label>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>候选窗上下两侧距离内容的留白距离</div>
+              </div>
+              <span style={{ fontSize: '14px', color: '#06b6d4', fontWeight: 700 }}>{styleConfig.margin_y ?? 8} px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="32"
+              value={styleConfig.margin_y ?? 8}
+              onChange={(e) => updateStyle({ margin_y: parseInt(e.target.value) || 0 })}
+              style={{ width: '100%', accentColor: '#06b6d4', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* 候选词条间距 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>候选词条间距 (candidate_spacing)</label>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>横排时为候选词水平间距，竖排时为行与行垂直间距</div>
+              </div>
+              <span style={{ fontSize: '14px', color: '#06b6d4', fontWeight: 700 }}>{styleConfig.candidate_spacing ?? 12} px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="30"
+              value={styleConfig.candidate_spacing ?? 12}
+              onChange={(e) => updateStyle({ candidate_spacing: parseInt(e.target.value) || 0 })}
+              style={{ width: '100%', accentColor: '#06b6d4', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* 编码与候选间距 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>编码与候选间距 (spacing)</label>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>输入中的拼音编码区与下方/右侧候选词区域的距离</div>
+              </div>
+              <span style={{ fontSize: '14px', color: '#06b6d4', fontWeight: 700 }}>{styleConfig.spacing ?? 10} px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="30"
+              value={styleConfig.spacing ?? 10}
+              onChange={(e) => updateStyle({ spacing: parseInt(e.target.value) || 0 })}
+              style={{ width: '100%', accentColor: '#06b6d4', cursor: 'pointer' }}
+            />
+          </div>
+        </div>
+
+        {/* 边框、圆角与阴影设置 */}
         <div className="glass-panel glow-card" style={{ padding: '22px', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '16px', fontWeight: 700, color: 'var(--text-main)' }}>
             <Square size={18} color="#c084fc" />
-            <span>圆角、边框与行内预编辑</span>
+            <span>圆角、边框、阴影与行内预编辑</span>
           </div>
 
+          {/* 窗口圆角 */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>圆角弧度 (corner_radius)</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>候选窗口圆角 (corner_radius)</label>
               <span style={{ fontSize: '14px', color: '#c084fc', fontWeight: 700 }}>{styleConfig.corner_radius} px</span>
             </div>
             <input
               type="range"
               min="0"
-              max="16"
+              max="20"
               value={styleConfig.corner_radius}
               onChange={(e) => updateStyle({ corner_radius: parseInt(e.target.value) || 0 })}
               style={{ width: '100%', accentColor: '#c084fc', cursor: 'pointer' }}
             />
           </div>
 
+          {/* 高亮候选背景圆角 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>高亮项背景圆角 (hilited_corner_radius)</label>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>首选词/当前光标高亮条底色的圆润程度</div>
+              </div>
+              <span style={{ fontSize: '14px', color: '#c084fc', fontWeight: 700 }}>{styleConfig.hilited_corner_radius ?? 4} px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="16"
+              value={styleConfig.hilited_corner_radius ?? 4}
+              onChange={(e) => updateStyle({ hilited_corner_radius: parseInt(e.target.value) || 0 })}
+              style={{ width: '100%', accentColor: '#c084fc', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* 外边框宽度 */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>外边框宽度 (border_width)</label>
@@ -812,10 +1019,29 @@ hilited_candidate_label_color: 0xFFD9F99D`;
             <input
               type="range"
               min="0"
-              max="4"
+              max="5"
               value={styleConfig.border_width}
               onChange={(e) => updateStyle({ border_width: parseInt(e.target.value) || 0 })}
               style={{ width: '100%', accentColor: '#c084fc', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* 窗口弥散投影阴影 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div>
+                <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>窗口投影阴影 (shadow_radius)</label>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>窗口周围立体环境光弥散阴影半径</div>
+              </div>
+              <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 700 }}>{styleConfig.shadow_radius ?? 0} px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="20"
+              value={styleConfig.shadow_radius ?? 0}
+              onChange={(e) => updateStyle({ shadow_radius: parseInt(e.target.value) || 0 })}
+              style={{ width: '100%', accentColor: '#38bdf8', cursor: 'pointer' }}
             />
           </div>
 
@@ -892,24 +1118,8 @@ hilited_candidate_label_color: 0xFFD9F99D`;
             <span>小狼毫 Windows 系统与交互集成</span>
           </div>
 
-          {/* 任务栏托盘图标 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>显示系统托盘图标 (display_tray_icon)</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>在 Windows 任务栏通知区常驻显示「中 / 英」输入状态托盘图标</div>
-            </div>
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={styleConfig.display_tray_icon ?? false}
-                onChange={(e) => updateStyle({ display_tray_icon: e.target.checked })}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
-
           {/* 切换中英悬浮通知 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>中英文切换悬浮通知 (show_notifications)</div>
               <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>按快捷键切换中英文输入时，在屏幕右下角弹出 Windows 状态提示框</div>
@@ -938,22 +1148,6 @@ hilited_candidate_label_color: 0xFFD9F99D`;
               />
               <span className="slider"></span>
             </label>
-          </div>
-
-          {/* 窗口弥散投影阴影 */}
-          <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>窗口投影阴影 (shadow_radius)</label>
-              <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 700 }}>{styleConfig.shadow_radius ?? 0} px</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="20"
-              value={styleConfig.shadow_radius ?? 0}
-              onChange={(e) => updateStyle({ shadow_radius: parseInt(e.target.value) || 0 })}
-              style={{ width: '100%', accentColor: '#38bdf8', cursor: 'pointer' }}
-            />
           </div>
         </div>
       </div>
