@@ -15,7 +15,7 @@ import {
   Copy,
   Check,
   Compass,
-  Upload,
+  Download,
   Plus,
   Trash2,
   ShieldCheck,
@@ -58,6 +58,13 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
     const firstEnabled = schemas.find((s) => s.enabled);
     return firstEnabled ? firstEnabled.id : 'rime_ice';
   });
+
+  useEffect(() => {
+    const enabledList = schemas.filter((s) => s.enabled);
+    if (enabledList.length > 0 && !schemas.some((s) => s.id === selectedSchemaId)) {
+      setSelectedSchemaId(enabledList[0].id);
+    }
+  }, [schemas]);
 
   const isIce = selectedSchemaId === 'rime_ice';
   const isFrost = selectedSchemaId.includes('frost');
@@ -284,11 +291,11 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             </span>
           </div>
 
-          {/* 方案切换选择 */}
+          {/* 方案切换选择 (仅展示当前已启用的主力方案，未启用的放入下拉选择) */}
           {schemas.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                {schemas.map((s) => {
+                {(schemas.filter((s) => s.enabled).length > 0 ? schemas.filter((s) => s.enabled) : schemas.slice(0, 3)).map((s) => {
                   const isCur = s.id === selectedSchemaId;
                   return (
                     <button
@@ -296,14 +303,15 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                       type="button"
                       onClick={() => setSelectedSchemaId(s.id)}
                       style={{
-                        padding: '3px 9px',
+                        padding: '4px 11px',
                         borderRadius: '6px',
-                        fontSize: '11px',
+                        fontSize: '12px',
                         fontWeight: isCur ? 700 : 500,
                         backgroundColor: isCur ? 'rgba(56, 189, 248, 0.2)' : 'var(--bg-tertiary)',
                         color: isCur ? 'var(--accent)' : 'var(--text-muted)',
                         border: isCur ? '1px solid var(--accent)' : '1px solid var(--border)',
                         cursor: 'pointer',
+                        transition: 'all 0.15s ease',
                       }}
                     >
                       {s.name}
@@ -311,6 +319,31 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                   );
                 })}
               </div>
+
+              {schemas.filter((s) => !s.enabled).length > 0 && (
+                <select
+                  value={schemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '' : selectedSchemaId}
+                  onChange={(e) => {
+                    if (e.target.value) setSelectedSchemaId(e.target.value);
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    color: !schemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '#38bdf8' : 'var(--text-dim)',
+                    border: !schemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '1px solid #38bdf8' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                  title="查看未启用的其他方案特色手册"
+                >
+                  <option value="" disabled>查看其他未启用方案...</option>
+                  {schemas.filter((s) => !s.enabled).map((s) => (
+                    <option key={s.id} value={s.id}>{s.name} (未启用)</option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         </div>
@@ -640,7 +673,7 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                   cursor: importing ? 'not-allowed' : 'pointer',
                 }}
               >
-                <Upload size={13} /> {importing ? '正在选择...' : '导入新词库'}
+                <Download size={13} /> {importing ? '正在选择...' : '导入新词库'}
               </button>
 
               <button
@@ -904,7 +937,7 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                 cursor: importing ? 'not-allowed' : 'pointer',
               }}
             >
-              <Upload size={14} /> {importing ? '正在选择...' : '导入新词库'}
+              <Download size={14} /> {importing ? '正在选择...' : '导入新词库'}
             </button>
 
             <button

@@ -108,8 +108,13 @@ fn open_file_in_editor(path: String) -> Result<(), String> {
     if !p.exists() {
         return Err(format!("文件不存在: {}", path));
     }
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", &path])
+    let mut cmd = std::process::Command::new("cmd");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: 避免黑色 cmd 窗口闪烁
+    }
+    cmd.args(["/C", "start", "", &path])
         .spawn()
         .map_err(|e| format!("启动系统编辑器失败: {}", e))?;
     Ok(())

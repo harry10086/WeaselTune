@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { KeyBindingsConfig, SchemaItem } from '../types';
-import { Keyboard, ArrowUpDown, Layers, Check, SlidersHorizontal, X, Radio } from 'lucide-react';
+import { Keyboard, ArrowUpDown, Layers, Check, SlidersHorizontal, X, Radio, ArrowUp, ArrowDown, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 
 interface KeysViewProps {
   keyBindings: KeyBindingsConfig;
@@ -18,6 +18,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [recordedHotkey, setRecordedHotkey] = useState<string | null>(null);
   const [recordedKeysDisplay, setRecordedKeysDisplay] = useState<string[]>([]);
+  const [showMoreSchemas, setShowMoreSchemas] = useState(false);
   const recordInputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -143,9 +144,34 @@ export const KeysView: React.FC<KeysViewProps> = ({
   };
 
   const toggleSchema = (id: string) => {
-    onSchemasChange(
-      schemas.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))
-    );
+    const target = schemas.find((s) => s.id === id);
+    if (!target) return;
+    const willEnable = !target.enabled;
+    const enabledList = schemas.filter((s) => s.enabled && s.id !== id);
+    const disabledList = schemas.filter((s) => !s.enabled && s.id !== id);
+
+    if (willEnable) {
+      onSchemasChange([...enabledList, { ...target, enabled: true }, ...disabledList]);
+    } else {
+      onSchemasChange([...enabledList, ...disabledList, { ...target, enabled: false }]);
+    }
+  };
+
+  const moveSchema = (id: string, direction: 'up' | 'down') => {
+    const enabledList = schemas.filter((s) => s.enabled);
+    const disabledList = schemas.filter((s) => !s.enabled);
+    const idx = enabledList.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    if (direction === 'up' && idx > 0) {
+      const temp = enabledList[idx];
+      enabledList[idx] = enabledList[idx - 1];
+      enabledList[idx - 1] = temp;
+    } else if (direction === 'down' && idx < enabledList.length - 1) {
+      const temp = enabledList[idx];
+      enabledList[idx] = enabledList[idx + 1];
+      enabledList[idx + 1] = temp;
+    }
+    onSchemasChange([...enabledList, ...disabledList]);
   };
 
   const shiftOptions = [
@@ -558,38 +584,114 @@ export const KeysView: React.FC<KeysViewProps> = ({
 
       {/* 真实输入方案 Schema List (严格反映用户本地安装状态) */}
       <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
-          <Layers size={20} color="#fbbf24" />
-          <span>本地实际安装的输入方案选单</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)' }}>
+            <Layers size={20} color="#fbbf24" />
+            <span>输入方案选单与优先级</span>
+          </div>
+          <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+            已启用 <strong style={{ color: '#38bdf8' }}>{schemas.filter((s) => s.enabled).length}</strong> 个 / 本地共 {schemas.length} 个
+          </span>
         </div>
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px' }}>
-          严格基于您当前 <span className="mono" style={{ color: '#38bdf8' }}>%APPDATA%\Rime</span> 真实扫描出的方案文件（可通过上方设置的快捷键唤出选单进行切换）。
+          已彻底剔除构建残留（build 缓存），仅展示本地真实源方案。列表中<strong style={{ color: '#38bdf8' }}>排在首位的为默认主输入方案</strong>，可通过上下箭头调整快捷键切换次序。
         </p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {schemas.map((s) => (
+        {/* 1. 已启用的方案选单 (支持排序) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '18px' }}>
+          {schemas.filter((s) => s.enabled).map((s, idx, arr) => (
             <div
               key={s.id}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '14px 18px',
+                padding: '12px 18px',
                 borderRadius: '10px',
                 backgroundColor: 'var(--bg-tertiary)',
-                border: s.enabled ? '1px solid rgba(56, 189, 248, 0.5)' : '1px solid var(--border)',
+                border: idx === 0 ? '1px solid rgba(56, 189, 248, 0.6)' : '1px solid var(--border)',
+                boxShadow: idx === 0 ? '0 2px 10px rgba(56, 189, 248, 0.08)' : 'none',
               }}
             >
-              <div>
-                <div style={{ fontSize: '15px', fontWeight: 700, color: s.enabled ? '#38bdf8' : 'var(--text-muted)', marginBottom: '2px' }}>
-                  {s.name}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                {/* 排序控制按钮 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <button
+                    type="button"
+                    disabled={idx === 0}
+                    onClick={() => moveSchema(s.id, 'up')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: idx === 0 ? 'var(--text-dim)' : 'var(--text-main)',
+                      cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                      padding: '2px',
+                      lineHeight: 1,
+                      opacity: idx === 0 ? 0.3 : 0.8,
+                    }}
+                    title="上移方案优先级"
+                  >
+                    <ArrowUp size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={idx === arr.length - 1}
+                    onClick={() => moveSchema(s.id, 'down')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: idx === arr.length - 1 ? 'var(--text-dim)' : 'var(--text-main)',
+                      cursor: idx === arr.length - 1 ? 'not-allowed' : 'pointer',
+                      padding: '2px',
+                      lineHeight: 1,
+                      opacity: idx === arr.length - 1 ? 0.3 : 0.8,
+                    }}
+                    title="下移方案优先级"
+                  >
+                    <ArrowDown size={15} />
+                  </button>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-                  {s.description} · <span className="mono">{s.id}.schema.yaml</span>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: 700, color: idx === 0 ? '#38bdf8' : 'var(--text-main)' }}>
+                      {s.name}
+                    </span>
+                    {idx === 0 ? (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                          color: '#38bdf8',
+                          border: '1px solid rgba(56, 189, 248, 0.3)',
+                        }}
+                      >
+                        🌟 首选默认方案
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          padding: '1px 7px',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--bg-elevated)',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        备选 #{idx + 1}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                    {s.description} · <span className="mono">{s.id}.schema.yaml</span>
+                  </div>
                 </div>
               </div>
 
-              <label className="toggle-switch">
+              <label className="toggle-switch" title="关闭后将从当前输入方案选单中移除">
                 <input
                   type="checkbox"
                   checked={s.enabled}
@@ -599,7 +701,92 @@ export const KeysView: React.FC<KeysViewProps> = ({
               </label>
             </div>
           ))}
+
+          {schemas.filter((s) => s.enabled).length === 0 && (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#f87171', backgroundColor: 'rgba(239, 68, 68, 0.08)', borderRadius: '10px' }}>
+              ⚠️ 当前未勾选任何输入方案，请在下方列表中至少启用一个方案！
+            </div>
+          )}
         </div>
+
+        {/* 2. 本地更多未启用的可用方案 (可折叠展示) */}
+        {schemas.filter((s) => !s.enabled).length > 0 && (
+          <div style={{ marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+            <button
+              type="button"
+              onClick={() => setShowMoreSchemas(!showMoreSchemas)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--bg-tertiary)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+            >
+              {showMoreSchemas ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              <span>本机其他可用方案 ({schemas.filter((s) => !s.enabled).length} 个未启用)</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
+                {showMoreSchemas ? '点击收起' : '点击展开添加进选单'}
+              </span>
+            </button>
+
+            {showMoreSchemas && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                {schemas.filter((s) => !s.enabled).map((s) => (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 16px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                        {s.name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                        {s.description} · <span className="mono">{s.id}.schema.yaml</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleSchema(s.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        backgroundColor: 'var(--bg-elevated)',
+                        color: 'var(--accent)',
+                        border: '1px solid var(--border)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Plus size={14} /> 启用此方案
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

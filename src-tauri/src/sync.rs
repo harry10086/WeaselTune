@@ -131,13 +131,21 @@ Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = '请选择 Rime 同步文件夹'
 $dialog.ShowNewFolderButton = $true
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+$form = New-Object System.Windows.Forms.Form
+$form.TopMost = $true
+if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
     Write-Output $dialog.SelectedPath
 }
 "#;
 
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-STA", "-Command", script])
+    let mut cmd = Command::new("powershell");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: 隐藏黑窗口
+    }
+    let output = cmd
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-STA", "-Command", script])
         .output()
         .map_err(|e| format!("启动文件夹选择窗口失败: {}", e))?;
 

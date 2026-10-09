@@ -848,43 +848,43 @@ pub fn scan_actual_installed_schemas(user_dir: &str) -> Vec<SchemaItem> {
             }
         }
     }
+    // 若依然为空，尝试从 build/default.yaml 中读取（Rime 构建产物中的 schema_list 反映部署后的激活状态）
     if active_ids.is_empty() {
-        active_ids = vec![
-            "rime_frost".to_string(),
-            "rime_mint".to_string(),
-            "wanxiang".to_string(),
-            "rime_ice".to_string(),
-        ];
-    }
-
-    // 确定所有需要扫描方案的目录（优先扫描用户配置目录，其次扫描小狼毫系统预置程序 data 目录）
-    let (detected_root, _, _) = crate::detector::detect_weasel_paths();
-    let mut scan_dirs = vec![u_path.to_path_buf()];
-    if let Some(wr) = detected_root {
-        let p = Path::new(&wr).join("data");
-        if p.exists() && !scan_dirs.contains(&p) {
-            scan_dirs.push(p);
-        }
-    }
-    // 扫描用户目录下一级可能存在的方案子目录（方便测试与便携包管理）
-    if let Ok(entries) = fs::read_dir(u_path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() && !scan_dirs.contains(&p) {
-                if let Ok(sub_entries) = fs::read_dir(&p) {
-                    for sub in sub_entries.flatten() {
-                        if sub.file_name().to_string_lossy().ends_with(".schema.yaml") {
-                            scan_dirs.push(p.clone());
-                            break;
+        let build_default = u_path.join("build").join("default.yaml");
+        if build_default.exists() {
+            if let Ok(c) = fs::read_to_string(&build_default) {
+                if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&c) {
+                    if let Some(list) = val.get("schema_list").and_then(|l| l.as_sequence()) {
+                        let ids: Vec<String> = list.iter()
+                            .filter_map(|item| item.get("schema").and_then(|s| s.as_str()).map(|s| s.to_string()))
+                            .collect();
+                        if !ids.is_empty() {
+                            active_ids = ids;
                         }
                     }
                 }
             }
         }
     }
-    // 兼容开发工作区 scheme/ 方案包测试目录
-    for dev_scheme in &["scheme/rime-frost-master", "scheme/oh-my-rime-main", "scheme/rime-wanxiang-base"] {
-        let p = PathBuf::from(dev_scheme);
+
+    if active_ids.is_empty() {
+        // 单个主力方案保底：优先检测用户目录下实际存在的方案文件
+        for candidate in &["rime_frost", "rime_mint", "wanxiang", "rime_ice"] {
+            if u_path.join(format!("{}.schema.yaml", candidate)).exists() {
+                active_ids.push(candidate.to_string());
+                break;
+            }
+        }
+        if active_ids.is_empty() {
+            active_ids.push("rime_ice".to_string());
+        }
+    }
+
+    // 确定所有需要扫描方案的目录（严格仅扫描用户配置根目录与小狼毫系统预置程序 data 根目录，绝对不扫描 build/backup/sync 等子目录）
+    let (detected_root, _, _) = crate::detector::detect_weasel_paths();
+    let mut scan_dirs = vec![u_path.to_path_buf()];
+    if let Some(wr) = detected_root {
+        let p = Path::new(&wr).join("data");
         if p.exists() && !scan_dirs.contains(&p) {
             scan_dirs.push(p);
         }
@@ -1001,8 +1001,19 @@ pub fn scan_actual_installed_schemas(user_dir: &str) -> Vec<SchemaItem> {
         });
     }
 
-    // 默认排序：已激活的排在最前面，其次按名称
-    schemas.sort_by(|a, b| b.enabled.cmp(&a.enabled).then_with(|| a.id.cmp(&b.id)));
+    // 默认排序：已激活的按照 active_ids 中的顺序排在最前面；未激活的按照名称排序排在后面
+    schemas.sort_by(|a, b| {
+        match (a.enabled, b.enabled) {
+            (true, true) => {
+                let pos_a = active_ids.iter().position(|id| id == &a.id).unwrap_or(usize::MAX);
+                let pos_b = active_ids.iter().position(|id| id == &b.id).unwrap_or(usize::MAX);
+                pos_a.cmp(&pos_b)
+            }
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (false, false) => a.name.cmp(&b.name),
+        }
+    });
     schemas
 }
 
@@ -1088,27 +1099,21 @@ pub fn detect_schema_features(user_dir: &str, schema_id: &str) -> Vec<SchemeFeat
     let u_path = Path::new(user_dir);
     let mut target_file = u_path.join(format!("{}.schema.yaml", schema_id));
     
-    // 如果直接在根目录没找到，递归搜索 user_path 子目录
+    // 如果直接在根目录没找到，搜索 user_path 合法子目录（严格跳过 build、backup、sync 等）
     if !target_file.exists() {
         if let Ok(entries) = fs::read_dir(u_path) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
+                    let d_name = entry.file_name().to_string_lossy().to_string();
+                    if ["build", "backup", "sync", ".git", "opencc", "trash"].contains(&d_name.as_str()) {
+                        continue;
+                    }
                     let sub_target = entry.path().join(format!("{}.schema.yaml", schema_id));
                     if sub_target.exists() {
                         target_file = sub_target;
                         break;
                     }
                 }
-            }
-        }
-    }
-    // 兼容工作区 scheme/ 方案包测试目录 (scheme/oh-my-rime-main, scheme/rime-frost-master, scheme/rime-wanxiang-base)
-    if !target_file.exists() {
-        for scheme_subdir in &["scheme/rime-frost-master", "scheme/oh-my-rime-main", "scheme/rime-wanxiang-base"] {
-            let p = Path::new(scheme_subdir).join(format!("{}.schema.yaml", schema_id));
-            if p.exists() {
-                target_file = p;
-                break;
             }
         }
     }
@@ -1985,13 +1990,21 @@ $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Title = '请选择要导入的 Rime 词库文件 (.dict.yaml 或 .txt)'
 $dialog.Filter = 'Rime 词库文件 (*.dict.yaml;*.txt)|*.dict.yaml;*.txt|所有文件 (*.*)|*.*'
 $dialog.Multiselect = $false
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+$form = New-Object System.Windows.Forms.Form
+$form.TopMost = $true
+if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
     Write-Output $dialog.FileName
 }
 "#;
 
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-STA", "-Command", script])
+    let mut cmd = std::process::Command::new("powershell");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: 隐藏黑窗口
+    }
+    let output = cmd
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-STA", "-Command", script])
         .output()
         .map_err(|e| format!("启动文件选择器失败: {}", e))?;
 
