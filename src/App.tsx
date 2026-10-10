@@ -38,6 +38,7 @@ export function App() {
   const [env, setEnv] = useState<EnvironmentStatus | null>(null);
   const [config, setConfig] = useState<UnifiedFullConfig | null>(null);
   const [phrases, setPhrases] = useState<CustomPhraseItem[]>([]);
+  const [activePhraseFile, setActivePhraseFile] = useState<string>('custom_phrase.txt');
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>([]);
   const [defaultSchemes, setDefaultSchemes] = useState<ColorSchemeItem[]>([]);
 
@@ -92,11 +93,18 @@ export function App() {
         setDefaultSchemes(cfgRes.preset_schemes || []);
       }
 
-      // 3. 获取自定义短语
-      const [phraseItems] = await invoke<[CustomPhraseItem[], string[]]>('get_custom_phrases', {
+      // 3. 获取自定义短语（智能识别双拼文件或全拼文件）
+      const initialPhraseFile = envRes.recommended_phrase_file || (envRes.is_double_pinyin ? 'custom_phrase_double.txt' : 'custom_phrase.txt');
+      setActivePhraseFile(initialPhraseFile);
+      const [phraseItems, , activeFile] = await invoke<[CustomPhraseItem[], string[], string]>('get_custom_phrases', {
         userDir: envRes.rime_user_dir,
+        fileName: initialPhraseFile,
+        schemaId: envRes.active_schema_id,
       });
       setPhrases(phraseItems);
+      if (activeFile) {
+        setActivePhraseFile(activeFile);
+      }
 
       // 4. 获取快照列表
       const snaps = await invoke<BackupSnapshot[]>('list_backup_snapshots', {
@@ -261,15 +269,23 @@ export function App() {
 
   // 保存补丁并按需重新部署
   const handleSaveAndDeploy = async (autoDeploy: boolean) => {
-    if (!config || !env) return;
-    setSaving(true);
+    if (!config || !env || saving || deploying) return;
+    if (autoDeploy) {
+      setDeploying(true);
+    } else {
+      setSaving(true);
+    }
+
     try {
-      // 联动保存自定义短语：若在短语页面修改未单独保存，在此一同写入 custom_phrase.txt
+      // 联动保存自定义短语：若在短语页面修改未单独保存，在此一同写入当前激活的短语文件
       if (phrases && phrases.length > 0) {
         try {
+          const fileToSave = activePhraseFile || env.recommended_phrase_file || 'custom_phrase.txt';
           await invoke('save_phrases', {
             userDir: env.rime_user_dir,
             items: phrases,
+            fileName: fileToSave,
+            schemaId: env.active_schema_id,
           });
         } catch (phraseErr) {
           console.warn('Auto-saving phrases during deployment failed:', phraseErr);
@@ -293,12 +309,13 @@ export function App() {
       showToast(`保存失败: ${err}`, 'error');
     } finally {
       setSaving(false);
+      setDeploying(false);
     }
   };
 
   // 单独触发静默部署
   const handleDeployOnly = async () => {
-    if (!env) return;
+    if (!env || saving || deploying) return;
     setDeploying(true);
     try {
       const res = await invoke<DeployResult>('trigger_weasel_deploy', {
@@ -313,17 +330,21 @@ export function App() {
     }
   };
 
-  // 保存自定义短语
-  const handleSavePhrases = async (items: CustomPhraseItem[]) => {
-    if (!env) return;
+  // 保存自定义短语（支持指定 custom_phrase_double.txt 或 custom_phrase.txt）
+  const handleSavePhrases = async (items: CustomPhraseItem[], targetFileName?: string) => {
+    if (!env || saving || deploying) return;
+    const fileToSave = targetFileName || activePhraseFile || env.recommended_phrase_file || 'custom_phrase.txt';
     setSaving(true);
     try {
       await invoke('save_phrases', {
         userDir: env.rime_user_dir,
         items,
+        fileName: fileToSave,
+        schemaId: env.active_schema_id,
       });
       setPhrases(items);
-      showToast('自定义短语已成功安全写入 custom_phrase.txt！');
+      setActivePhraseFile(fileToSave);
+      showToast(`自定义短语已成功安全写入 ${fileToSave}！`);
     } catch (err: any) {
       showToast(`保存短语失败: ${err}`, 'error');
     } finally {
@@ -540,7 +561,7 @@ export function App() {
             {/* 保存配置按钮 */}
             <button
               onClick={() => handleSaveAndDeploy(false)}
-              disabled={saving || !config}
+              disabled={saving || deploying || !config}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -552,7 +573,8 @@ export function App() {
                 color: 'var(--text-main)',
                 fontSize: '13px',
                 fontWeight: 600,
-                cursor: saving ? 'not-allowed' : 'pointer',
+                cursor: (saving || deploying) ? 'not-allowed' : 'pointer',
+                opacity: (saving || deploying) ? 0.6 : 1,
               }}
             >
               <Save size={16} /> 仅保存补丁
@@ -561,7 +583,7 @@ export function App() {
             {/* 保存并静默重新部署按钮 */}
             <button
               onClick={() => handleSaveAndDeploy(true)}
-              disabled={saving || !config || !env?.weasel_installed}
+              disabled={saving || deploying || !config || !env?.weasel_installed}
               className="btn-primary"
               style={{
                 display: 'flex',
@@ -570,11 +592,12 @@ export function App() {
                 padding: '9px 20px',
                 borderRadius: '8px',
                 fontSize: '13px',
-                cursor: saving ? 'not-allowed' : 'pointer',
+                cursor: (saving || deploying) ? 'not-allowed' : 'pointer',
+                opacity: (saving || deploying) ? 0.7 : 1,
               }}
             >
-              <RefreshCw size={16} className={saving ? 'spin' : ''} />
-              保存并重新部署
+              <RefreshCw size={16} className={(saving || deploying) ? 'spin' : ''} />
+              {(saving || deploying) ? '正在部署中...' : '保存并重新部署'}
             </button>
           </div>
         </header>
@@ -646,11 +669,17 @@ export function App() {
               {activeTab === 'phrases' && (
                 <PhrasesView
                   phrases={phrases}
+                  currentFileName={activePhraseFile}
                   onPhrasesChange={(newPhrases) => setPhrases(newPhrases)}
                   onSavePhrases={handleSavePhrases}
                   onSaveAndDeploy={() => handleSaveAndDeploy(true)}
                   saving={saving}
+                  deploying={deploying}
                   userDir={env?.rime_user_dir}
+                  activeSchemaId={env?.active_schema_id}
+                  activeSchemaName={env?.active_schema_name}
+                  recommendedFile={env?.recommended_phrase_file}
+                  isDoublePinyin={env?.is_double_pinyin}
                 />
               )}
 
@@ -676,6 +705,68 @@ export function App() {
           )}
         </div>
       </main>
+
+      {/* 全局重新部署模态防重入遮罩 */}
+      {deploying && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9998,
+            animation: 'fadeIn 0.2s ease',
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              border: '1px solid var(--border-accent)',
+              borderRadius: '20px',
+              padding: '36px 44px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '16px',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
+              maxWidth: '440px',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: '60px',
+                height: '60px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--accent-glow)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid var(--border-accent)',
+              }}
+            >
+              <RefreshCw size={28} color="var(--accent)" className="spin" />
+            </div>
+            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
+              小狼毫正在重新部署中
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6', margin: 0 }}>
+              正在后台调用小狼毫编译输入方案、词典索引与拼音映射。<br />
+              通常需要 <strong style={{ color: 'var(--text-main)' }}>3 ~ 10 秒</strong>，请耐心等待完成。<br />
+              <span style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 600, display: 'inline-block', marginTop: '6px' }}>
+                ⚡ 部署过程中窗口已安全保护，无需重复点击
+              </span>
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 全局 Toast 通知 */}
       {toastMessage && (

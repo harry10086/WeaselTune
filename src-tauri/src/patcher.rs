@@ -1471,7 +1471,7 @@ pub fn scan_installed_dicts(user_dir: &str) -> Vec<DictFileInfo> {
         ("wanxiang_chaifen.dict.yaml", "万象汉字部件拆解拼音词库"),
     ].into_iter().collect();
 
-    // 1. 优先扫描用户短语文件 custom_phrase.txt
+    // 1. 优先扫描用户短语文件 custom_phrase.txt 与双拼短语 custom_phrase_double.txt
     let cp = u_path.join("custom_phrase.txt");
     if cp.exists() {
         let meta = fs::metadata(&cp).ok();
@@ -1481,7 +1481,21 @@ pub fn scan_installed_dicts(user_dir: &str) -> Vec<DictFileInfo> {
             relative_path: "custom_phrase.txt".to_string(),
             full_path: cp.to_string_lossy().to_string(),
             size_kb: (size_kb * 10.0).round() / 10.0,
-            description: "用户自定义短语与快捷输入条目（支持拼音缩写展开）".to_string(),
+            description: "用户自定义短语与快捷输入条目（全拼输入方案）".to_string(),
+            is_user_dict: true,
+        });
+    }
+
+    let cpd = u_path.join("custom_phrase_double.txt");
+    if cpd.exists() {
+        let meta = fs::metadata(&cpd).ok();
+        let size_kb = meta.map(|m| (m.len() as f64) / 1024.0).unwrap_or(0.0);
+        dicts.push(DictFileInfo {
+            name: "custom_phrase_double.txt".to_string(),
+            relative_path: "custom_phrase_double.txt".to_string(),
+            full_path: cpd.to_string_lossy().to_string(),
+            size_kb: (size_kb * 10.0).round() / 10.0,
+            description: "用户自定义短语（双拼方案专用，如小鹤双拼、自然码、微软双拼等）".to_string(),
             is_user_dict: true,
         });
     }
@@ -1506,7 +1520,7 @@ pub fn scan_installed_dicts(user_dir: &str) -> Vec<DictFileInfo> {
                 let path = entry.path();
                 if path.is_file() {
                     let fname = path.file_name().and_then(|f| f.to_str()).unwrap_or_default();
-                    if (fname.ends_with(".dict.yaml") || (fname.ends_with(".txt") && fname != "custom_phrase.txt"))
+                    if (fname.ends_with(".dict.yaml") || (fname.ends_with(".txt") && fname != "custom_phrase.txt" && fname != "custom_phrase_double.txt"))
                         && !fname.starts_with('.') {
                         let rel_path = path.strip_prefix(u_path)
                             .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -1560,7 +1574,7 @@ pub fn scan_installed_dicts(user_dir: &str) -> Vec<DictFileInfo> {
                             full_path: path.to_string_lossy().to_string(),
                             size_kb: (size_kb * 10.0).round() / 10.0,
                             description: desc.to_string(),
-                            is_user_dict: fname == "custom_phrase.txt" || is_user,
+                            is_user_dict: fname == "custom_phrase.txt" || fname == "custom_phrase_double.txt" || is_user,
                         });
                     }
                 }

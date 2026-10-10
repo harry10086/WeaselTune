@@ -3,7 +3,6 @@ use std::path::Path;
 use std::process::Command;
 use serde::{Deserialize, Serialize};
 use crate::deployer::DeployResult;
-use crate::detector::detect_weasel_paths;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct RimeSyncConfig {
@@ -80,49 +79,11 @@ pub fn save_installation_sync_config(user_dir: &str, sync_config: &RimeSyncConfi
 }
 
 pub fn trigger_rime_sync(custom_deployer: Option<String>) -> DeployResult {
-    let deployer_path = if let Some(p) = custom_deployer {
-        if !p.trim().is_empty() && Path::new(&p).exists() {
-            p
-        } else {
-            let (_, _, detected) = detect_weasel_paths();
-            detected.unwrap_or_default()
-        }
-    } else {
-        let (_, _, detected) = detect_weasel_paths();
-        detected.unwrap_or_default()
-    };
-
-    if deployer_path.is_empty() || !Path::new(&deployer_path).exists() {
-        return DeployResult {
-            success: false,
-            message: "未找到 WeaselDeployer.exe 部署程序，请检查小狼毫安装路径".to_string(),
-            deployer_used: String::new(),
-        };
-    }
-
-    match Command::new(&deployer_path).arg("/sync").output() {
-        Ok(output) => {
-            if output.status.success() {
-                DeployResult {
-                    success: true,
-                    message: "词库与配置同步指令已成功发送，小狼毫正在同步词库与配置！".to_string(),
-                    deployer_used: deployer_path,
-                }
-            } else {
-                let err = String::from_utf8_lossy(&output.stderr);
-                DeployResult {
-                    success: false,
-                    message: format!("同步程序返回异常代码: {}. 详情: {}", output.status, err),
-                    deployer_used: deployer_path,
-                }
-            }
-        }
-        Err(e) => DeployResult {
-            success: false,
-            message: format!("无法启动同步程序进程: {}", e),
-            deployer_used: deployer_path,
-        },
-    }
+    crate::deployer::run_weasel_command(
+        "/sync",
+        custom_deployer,
+        "词库与配置同步指令已成功发送，小狼毫正在同步词库与配置！",
+    )
 }
 
 pub fn pick_sync_folder() -> Result<Option<String>, String> {

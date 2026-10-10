@@ -9,6 +9,16 @@ export interface EnvironmentStatus {
   active_schema_name: string;
   patch_files_found: string[];
   total_phrases_count: number;
+  recommended_phrase_file?: string;
+  is_double_pinyin?: boolean;
+}
+
+export interface PhraseFileInfo {
+  file_name: string;
+  exists: boolean;
+  phrase_count: number;
+  is_recommended: boolean;
+  description: string;
 }
 
 export interface ColorSchemeItem {

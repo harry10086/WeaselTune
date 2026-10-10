@@ -26,40 +26,53 @@ fn get_full_config(user_dir: String) -> UnifiedFullConfig {
 }
 
 #[tauri::command]
-fn save_config_and_deploy(user_dir: String, config: UnifiedFullConfig, auto_deploy: bool) -> Result<DeployResult, String> {
-    // 1. 自动写入备份快照
-    let _ = create_snapshot(&user_dir, Some("auto_save"));
+async fn save_config_and_deploy(user_dir: String, config: UnifiedFullConfig, auto_deploy: bool) -> Result<DeployResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        // 1. 自动写入备份快照
+        let _ = create_snapshot(&user_dir, Some("auto_save"));
 
-    // 2. 安全写入 patch 补丁文件
-    save_unified_config(&user_dir, config)?;
+        // 2. 安全写入 patch 补丁文件
+        save_unified_config(&user_dir, config)?;
 
-    // 3. 按需触发静默重新部署
-    if auto_deploy {
-        let res = trigger_deploy(None);
-        Ok(res)
-    } else {
-        Ok(DeployResult {
-            success: true,
-            message: "配置已保存至补丁文件（未触发重新部署）".to_string(),
-            deployer_used: String::new(),
-        })
-    }
+        // 3. 按需触发静默重新部署
+        if auto_deploy {
+            let res = trigger_deploy(None);
+            Ok(res)
+        } else {
+            Ok(DeployResult {
+                success: true,
+                message: "配置已保存至补丁文件（未触发重新部署）".to_string(),
+                deployer_used: String::new(),
+            })
+        }
+    }).await.map_err(|e| format!("执行保存与部署任务失败: {}", e))?
 }
 
 #[tauri::command]
-fn trigger_weasel_deploy(deployer_path: Option<String>) -> DeployResult {
-    trigger_deploy(deployer_path)
+async fn trigger_weasel_deploy(deployer_path: Option<String>) -> DeployResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        trigger_deploy(deployer_path)
+    }).await.unwrap_or_else(|e| DeployResult {
+        success: false,
+        message: format!("部署任务调度异常: {}", e),
+        deployer_used: String::new(),
+    })
 }
 
 #[tauri::command]
-fn get_custom_phrases(user_dir: String) -> (Vec<CustomPhraseItem>, Vec<String>) {
-    read_custom_phrases(&user_dir)
+fn get_custom_phrases(user_dir: String, file_name: Option<String>, schema_id: Option<String>) -> (Vec<CustomPhraseItem>, Vec<String>, String) {
+    read_custom_phrases(&user_dir, file_name.as_deref(), schema_id.as_deref())
 }
 
 #[tauri::command]
-fn save_phrases(user_dir: String, items: Vec<CustomPhraseItem>) -> Result<(), String> {
+fn save_phrases(user_dir: String, items: Vec<CustomPhraseItem>, file_name: Option<String>, schema_id: Option<String>) -> Result<String, String> {
     let _ = create_snapshot(&user_dir, Some("before_phrases_save"));
-    save_phrases_impl(&user_dir, items)
+    save_phrases_impl(&user_dir, items, file_name.as_deref(), schema_id.as_deref())
+}
+
+#[tauri::command]
+fn get_phrase_files_status(user_dir: String, schema_id: Option<String>) -> Vec<phrases::PhraseFileInfo> {
+    phrases::list_phrase_files_info(&user_dir, schema_id.as_deref().unwrap_or(""))
 }
 
 #[tauri::command]
@@ -174,8 +187,14 @@ fn save_sync_config(user_dir: String, config: RimeSyncConfig) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn trigger_rime_sync(deployer_path: Option<String>) -> DeployResult {
-    run_rime_sync(deployer_path)
+async fn trigger_rime_sync(deployer_path: Option<String>) -> DeployResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_rime_sync(deployer_path)
+    }).await.unwrap_or_else(|e| DeployResult {
+        success: false,
+        message: format!("同步任务调度异常: {}", e),
+        deployer_used: String::new(),
+    })
 }
 
 #[tauri::command]
@@ -251,6 +270,7 @@ pub fn run() {
             create_empty_custom_dict,
             delete_custom_dict,
             parse_color_scheme_yaml,
+            get_phrase_files_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WeaselTune");
@@ -281,8 +301,10 @@ mod tests {
     #[test]
     fn test_custom_phrase_read() {
         let env = inspect_environment();
-        let (phrases, _) = read_custom_phrases(&env.rime_user_dir);
-        println!("Custom phrases count: {}", phrases.len());
+        let (phrases, _, active_file) = read_custom_phrases(&env.rime_user_dir, None, Some(&env.active_schema_id));
+        println!("Custom phrases count: {}, active file: {}", phrases.len(), active_file);
+        let statuses = phrases::list_phrase_files_info(&env.rime_user_dir, &env.active_schema_id);
+        assert_eq!(statuses.len(), 2);
     }
 
     #[test]

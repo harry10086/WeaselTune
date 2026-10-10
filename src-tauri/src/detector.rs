@@ -15,6 +15,8 @@ pub struct EnvironmentStatus {
     pub active_schema_name: String,
     pub patch_files_found: Vec<String>,
     pub total_phrases_count: usize,
+    pub recommended_phrase_file: String,
+    pub is_double_pinyin: bool,
 }
 
 pub fn detect_weasel_paths() -> (Option<String>, Option<String>, Option<String>) {
@@ -148,21 +150,6 @@ pub fn inspect_environment() -> EnvironmentStatus {
         }
     }
 
-    // 统计现有 custom_phrase 词条数量
-    let mut total_phrases_count = 0;
-    let phrase_path = user_path.join("custom_phrase.txt");
-    if phrase_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&phrase_path) {
-            total_phrases_count = content
-                .lines()
-                .filter(|l| {
-                    let t = l.trim();
-                    !t.is_empty() && !t.starts_with('#')
-                })
-                .count();
-        }
-    }
-
     // 探测当前激活的输入方案
     let mut detected_id_opt: Option<String> = None;
 
@@ -281,6 +268,23 @@ pub fn inspect_environment() -> EnvironmentStatus {
         };
     }
 
+    // 智能识别双拼方案与推荐的自定义短语文件
+    let is_double_pinyin = crate::phrases::is_schema_double_pinyin(&active_schema_id, &rime_user_dir);
+    let recommended_phrase_file = crate::phrases::get_recommended_phrase_file(&rime_user_dir, &active_schema_id);
+
+    // 统计推荐短语文件的词条数（如果推荐文件不存在，尝试回退统计另一个存在的文件）
+    let target_phrase_path = user_path.join(&recommended_phrase_file);
+    let total_phrases_count = if target_phrase_path.exists() {
+        crate::phrases::count_phrase_file_lines(&target_phrase_path)
+    } else {
+        let fallback_file = if recommended_phrase_file == "custom_phrase_double.txt" {
+            "custom_phrase.txt"
+        } else {
+            "custom_phrase_double.txt"
+        };
+        crate::phrases::count_phrase_file_lines(&user_path.join(fallback_file))
+    };
+
     EnvironmentStatus {
         weasel_installed,
         weasel_version,
@@ -292,5 +296,7 @@ pub fn inspect_environment() -> EnvironmentStatus {
         active_schema_name,
         patch_files_found,
         total_phrases_count,
+        recommended_phrase_file,
+        is_double_pinyin,
     }
 }
