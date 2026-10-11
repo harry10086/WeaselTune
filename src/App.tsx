@@ -211,6 +211,7 @@ export function App() {
           dict_comment_max_length: 50,
           enable_radical_pinyin: true,
           enable_melt_eng: true,
+          melt_eng_all_case: false,
           enable_markdown: true,
           dict_large_char: false,
           dict_base: true,

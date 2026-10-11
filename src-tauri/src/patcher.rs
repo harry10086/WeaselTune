@@ -164,6 +164,7 @@ pub struct RimeIceToggles {
     pub dict_comment_max_length: u32,
     pub enable_radical_pinyin: bool,
     pub enable_melt_eng: bool,
+    pub melt_eng_all_case: bool,
     pub enable_markdown: bool,
     // 词库与字表勾选
     pub dict_large_char: bool,   // 41448 大字表 (生僻字)
@@ -210,6 +211,7 @@ impl Default for RimeIceToggles {
             dict_comment_max_length: 50,
             enable_radical_pinyin: true,
             enable_melt_eng: true,
+            melt_eng_all_case: false,
             enable_markdown: true,
             dict_large_char: false,
             dict_base: true,
@@ -880,6 +882,10 @@ pub fn scan_actual_installed_schemas(user_dir: &str) -> Vec<SchemaItem> {
         }
     }
 
+    // 部件拆字 (radical_pinyin) 在日常输入中作为主方案的反查辅码使用，无须作为独立输入方案常驻选单
+    // 默认在方案列表中取消勾选部件拆字，放入未启用备选区，保留 melt_eng (Easy English Nano) 等实用方案
+    active_ids.retain(|id| id != "radical_pinyin");
+
     // 确定所有需要扫描方案的目录（严格仅扫描用户配置根目录与小狼毫系统预置程序 data 根目录，绝对不扫描 build/backup/sync 等子目录）
     let (detected_root, _, _) = crate::detector::detect_weasel_paths();
     let mut scan_dirs = vec![u_path.to_path_buf()];
@@ -948,6 +954,12 @@ pub fn scan_actual_installed_schemas(user_dir: &str) -> Vec<SchemaItem> {
                     if let Some(fname) = path.file_name().and_then(|f| f.to_str()) {
                         if fname.ends_with(".schema.yaml") {
                             let id = fname.replace(".schema.yaml", "");
+                            // 排除内部反查辅码组件（如 radical_pinyin 部件拆字、wanxiang_reverse 反查辅码）
+                            // 它们仅供拼音方案内嵌反查调用，绝非独立可切换的输入法方案，不应出现在方案选单与方案区中
+                            if id == "radical_pinyin" || id == "wanxiang_reverse" {
+                                continue;
+                            }
+
                             // 用户目录优先，若已存在相同方案 ID 则跳过共享库版本
                             if schemas.iter().any(|s: &SchemaItem| s.id == id) {
                                 continue;
@@ -2544,6 +2556,29 @@ pub fn get_schema_toggles_and_fuzzy(user_dir: &str, schema_id: &str) -> SchemaSt
         }
     }
 
+    // 探测英文大小写派生规则 (melt_eng)
+    let melt_custom = u_path.join("melt_eng.custom.yaml");
+    if melt_custom.exists() {
+        if let Ok(c) = fs::read_to_string(&melt_custom) {
+            if c.contains("derive/^.+$/\\L$0/") || c.contains("derive/^.+$/\\L$0") || (c.contains("derive/^.+$/") && !c.contains("derive/^.{4,}$/")) {
+                toggles.melt_eng_all_case = true;
+            } else if c.contains("derive/^.{4,}$/") {
+                toggles.melt_eng_all_case = false;
+            }
+        }
+    } else {
+        let melt_schema = u_path.join("melt_eng.schema.yaml");
+        if melt_schema.exists() {
+            if let Ok(c) = fs::read_to_string(&melt_schema) {
+                if c.contains("derive/^.+$/\\L$0/") || c.contains("derive/^.+$/\\L$0") || (c.contains("derive/^.+$/") && !c.contains("derive/^.{4,}$/")) {
+                    toggles.melt_eng_all_case = true;
+                } else if c.contains("derive/^.{4,}$/") {
+                    toggles.melt_eng_all_case = false;
+                }
+            }
+        }
+    }
+
     SchemaStateConfig {
         schema_id: schema_id.to_string(),
         fuzzy_pinyin: fuzzy,
@@ -3015,6 +3050,29 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
         }
     }
 
+    // 探测英文大小写派生规则 (melt_eng)
+    let melt_custom = u_path.join("melt_eng.custom.yaml");
+    if melt_custom.exists() {
+        if let Ok(c) = fs::read_to_string(&melt_custom) {
+            if c.contains("derive/^.+$/\\L$0/") || c.contains("derive/^.+$/\\L$0") || (c.contains("derive/^.+$/") && !c.contains("derive/^.{4,}$/")) {
+                rime_ice_toggles.melt_eng_all_case = true;
+            } else if c.contains("derive/^.{4,}$/") {
+                rime_ice_toggles.melt_eng_all_case = false;
+            }
+        }
+    } else {
+        let melt_schema = u_path.join("melt_eng.schema.yaml");
+        if melt_schema.exists() {
+            if let Ok(c) = fs::read_to_string(&melt_schema) {
+                if c.contains("derive/^.+$/\\L$0/") || c.contains("derive/^.+$/\\L$0") || (c.contains("derive/^.+$/") && !c.contains("derive/^.{4,}$/")) {
+                    rime_ice_toggles.melt_eng_all_case = true;
+                } else if c.contains("derive/^.{4,}$/") {
+                    rime_ice_toggles.melt_eng_all_case = false;
+                }
+            }
+        }
+    }
+
     if !detected_page_keys.is_empty() {
         key_bindings.page_up_down_keys = detected_page_keys;
     }
@@ -3170,7 +3228,7 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
     default_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
     default_yaml.push_str("  schema_list:\n");
     for s in &config.schemas {
-        if s.enabled {
+        if s.enabled && s.id != "radical_pinyin" && s.id != "wanxiang_reverse" {
             default_yaml.push_str(&format!("    - schema: {}\n", s.id));
         }
     }
@@ -3569,6 +3627,52 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
 
                 let _ = fs::write(u_path.join(format!("{}.custom.yaml", s.id)), &other_yaml);
             }
+        }
+    }
+
+    // 维护英文大小写派生规则补丁 (melt_eng.custom.yaml)
+    let melt_schema = u_path.join("melt_eng.schema.yaml");
+    let melt_custom = u_path.join("melt_eng.custom.yaml");
+    let has_melt = melt_schema.exists() || melt_custom.exists() || is_ice_active || config.schemas.iter().any(|s| s.id == "melt_eng");
+    if has_melt {
+        let derive_rule = if config.rime_ice_toggles.melt_eng_all_case {
+            "derive/^.+$/\\L$0/"
+        } else {
+            "derive/^.{4,}$/\\L$0/"
+        };
+        let mut patch_map = serde_yaml::Mapping::new();
+        if melt_custom.exists() {
+            if let Ok(c) = fs::read_to_string(&melt_custom) {
+                if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&c) {
+                    if let Some(p) = val.get("patch").and_then(|p| p.as_mapping()) {
+                        patch_map = p.clone();
+                    }
+                }
+            }
+        }
+        let algebra_list = vec![
+            serde_yaml::Value::String("erase/^xx$/".to_string()),
+            serde_yaml::Value::String(derive_rule.to_string()),
+        ];
+        patch_map.insert(
+            serde_yaml::Value::String("speller/algebra".to_string()),
+            serde_yaml::Value::Sequence(algebra_list),
+        );
+        let mut root_map = serde_yaml::Mapping::new();
+        root_map.insert(
+            serde_yaml::Value::String("patch".to_string()),
+            serde_yaml::Value::Mapping(patch_map),
+        );
+        let header = format!(
+            "# WeaselTune 生成的英文大小写派生规则定制补丁 (melt_eng)\n# 英语派生规则: {}\n",
+            if config.rime_ice_toggles.melt_eng_all_case {
+                "开启任意长度英文大小写不敏感匹配 (支持 2-3 字母缩写如 apk -> APK, mac -> Mac)"
+            } else {
+                "四个字母以上派生全小写 (雾凇新版规范，避免简拼重码)"
+            }
+        );
+        if let Ok(yaml_body) = serde_yaml::to_string(&serde_yaml::Value::Mapping(root_map)) {
+            let _ = fs::write(&melt_custom, format!("{}{}", header, yaml_body));
         }
     }
 

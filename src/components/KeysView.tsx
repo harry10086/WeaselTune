@@ -143,6 +143,9 @@ export const KeysView: React.FC<KeysViewProps> = ({
     updateKb({ switcher_hotkeys: currentSwitcherKeys.filter((k) => k !== hk) });
   };
 
+  // 排除内部反查辅码组件（如 radical_pinyin 部件拆字、wanxiang_reverse），只展示真正的独立输入方案
+  const validSchemas = schemas.filter((s) => s.id !== 'radical_pinyin' && s.id !== 'wanxiang_reverse');
+
   const toggleSchema = (id: string) => {
     const target = schemas.find((s) => s.id === id);
     if (!target) return;
@@ -590,7 +593,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
             <span>输入方案选单与优先级</span>
           </div>
           <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-            已启用 <strong style={{ color: '#38bdf8' }}>{schemas.filter((s) => s.enabled).length}</strong> 个 / 本地共 {schemas.length} 个
+            已启用 <strong style={{ color: '#38bdf8' }}>{validSchemas.filter((s) => s.enabled).length}</strong> 个 / 本地共 {validSchemas.length} 个
           </span>
         </div>
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px' }}>
@@ -599,7 +602,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
 
         {/* 1. 已启用的方案选单 (支持排序) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '18px' }}>
-          {schemas.filter((s) => s.enabled).map((s, idx, arr) => (
+          {validSchemas.filter((s) => s.enabled).map((s, idx, arr) => (
             <div
               key={s.id}
               style={{
@@ -702,7 +705,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
             </div>
           ))}
 
-          {schemas.filter((s) => s.enabled).length === 0 && (
+          {validSchemas.filter((s) => s.enabled).length === 0 && (
             <div style={{ padding: '20px', textAlign: 'center', color: '#f87171', backgroundColor: 'rgba(239, 68, 68, 0.08)', borderRadius: '10px' }}>
               ⚠️ 当前未勾选任何输入方案，请在下方列表中至少启用一个方案！
             </div>
@@ -710,7 +713,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
         </div>
 
         {/* 2. 本地更多未启用的可用方案 (可折叠展示) */}
-        {schemas.filter((s) => !s.enabled).length > 0 && (
+        {validSchemas.filter((s) => !s.enabled).length > 0 && (
           <div style={{ marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
             <button
               type="button"
@@ -732,7 +735,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
               }}
             >
               {showMoreSchemas ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              <span>本机其他可用方案 ({schemas.filter((s) => !s.enabled).length} 个未启用)</span>
+              <span>本机其他可用方案 ({validSchemas.filter((s) => !s.enabled).length} 个未启用)</span>
               <span style={{ fontSize: '11px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
                 {showMoreSchemas ? '点击收起' : '点击展开添加进选单'}
               </span>
@@ -740,7 +743,7 @@ export const KeysView: React.FC<KeysViewProps> = ({
 
             {showMoreSchemas && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-                {schemas.filter((s) => !s.enabled).map((s) => (
+                {validSchemas.filter((s) => !s.enabled).map((s) => (
                   <div
                     key={s.id}
                     style={{

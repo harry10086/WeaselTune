@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FuzzyPinyinConfig, RimeIceToggles, DictFileInfo, CustomDictItem, SchemaItem, SchemeFeatureItem, SchemaDictMountsInfo } from '../types';
 import {
   Smile,
@@ -54,17 +54,22 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
   onCustomDictsChange,
   onRefresh,
 }) => {
+  // 过滤内部反查专用组件（如 radical_pinyin 部件拆字、wanxiang_reverse 反查辅码）
+  const validSchemas = useMemo(() => {
+    return schemas.filter((s) => s.id !== 'radical_pinyin' && s.id !== 'wanxiang_reverse');
+  }, [schemas]);
+
   const [selectedSchemaId, setSelectedSchemaId] = useState<string>(() => {
-    const firstEnabled = schemas.find((s) => s.enabled);
-    return firstEnabled ? firstEnabled.id : 'rime_ice';
+    const firstEnabled = validSchemas.find((s) => s.enabled);
+    return firstEnabled ? firstEnabled.id : (validSchemas[0]?.id || 'rime_ice');
   });
 
   useEffect(() => {
-    const enabledList = schemas.filter((s) => s.enabled);
-    if (enabledList.length > 0 && !schemas.some((s) => s.id === selectedSchemaId)) {
+    const enabledList = validSchemas.filter((s) => s.enabled);
+    if (enabledList.length > 0 && !validSchemas.some((s) => s.id === selectedSchemaId)) {
       setSelectedSchemaId(enabledList[0].id);
     }
-  }, [schemas]);
+  }, [validSchemas]);
 
   const isIce = selectedSchemaId === 'rime_ice';
   const isFrost = selectedSchemaId.includes('frost');
@@ -292,10 +297,10 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
           </div>
 
           {/* 方案切换选择 (仅展示当前已启用的主力方案，未启用的放入下拉选择) */}
-          {schemas.length > 0 && (
+          {validSchemas.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                {(schemas.filter((s) => s.enabled).length > 0 ? schemas.filter((s) => s.enabled) : schemas.slice(0, 3)).map((s) => {
+                {(validSchemas.filter((s) => s.enabled).length > 0 ? validSchemas.filter((s) => s.enabled) : validSchemas.slice(0, 3)).map((s) => {
                   const isCur = s.id === selectedSchemaId;
                   return (
                     <button
@@ -320,9 +325,9 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                 })}
               </div>
 
-              {schemas.filter((s) => !s.enabled).length > 0 && (
+              {validSchemas.filter((s) => !s.enabled).length > 0 && (
                 <select
-                  value={schemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '' : selectedSchemaId}
+                  value={validSchemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '' : selectedSchemaId}
                   onChange={(e) => {
                     if (e.target.value) setSelectedSchemaId(e.target.value);
                   }}
@@ -331,15 +336,15 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                     borderRadius: '6px',
                     fontSize: '12px',
                     backgroundColor: 'var(--bg-tertiary)',
-                    color: !schemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '#38bdf8' : 'var(--text-dim)',
-                    border: !schemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '1px solid #38bdf8' : '1px solid var(--border)',
+                    color: !validSchemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '#38bdf8' : 'var(--text-dim)',
+                    border: !validSchemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '1px solid #38bdf8' : '1px solid var(--border)',
                     cursor: 'pointer',
                     outline: 'none',
                   }}
                   title="查看未启用的其他方案特色手册"
                 >
                   <option value="" disabled>查看其他未启用方案...</option>
-                  {schemas.filter((s) => !s.enabled).map((s) => (
+                  {validSchemas.filter((s) => !s.enabled).map((s) => (
                     <option key={s.id} value={s.id}>{s.name} (未启用)</option>
                   ))}
                 </select>
@@ -1639,6 +1644,68 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                   type="checkbox"
                   checked={toggles.enable_melt_eng}
                   onChange={(e) => updateToggles({ enable_melt_eng: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          )}
+
+          {/* 英语派生规则 (全长度英文匹配 / 4字母派生限制) */}
+          {(isIce || isMint || isFrost || selectedSchemaId === 'melt_eng') && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 16px',
+                borderRadius: '10px',
+                backgroundColor: 'var(--bg-tertiary)',
+                border: toggles.melt_eng_all_case ? '1px solid #38bdf8' : '1px solid var(--border)',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>英语派生规则</span>
+                  {toggles.melt_eng_all_case ? (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                        color: '#38bdf8',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                      }}
+                    >
+                      全长度匹配 (apk ➔ APK)
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'var(--bg-elevated)',
+                        color: 'var(--text-dim)',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      ≥4字母派生 (防简拼重码)
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: '1.4' }}>
+                  {toggles.melt_eng_all_case
+                    ? '开启任意长度英文大小写不敏感匹配 (derive/^.+$/\\L$0/)，支持 2~3 字母缩写如 apk ➔ APK、mac ➔ Mac'
+                    : '仅 4 个字母及以上派生全小写 (derive/^.{4,}$/\\L$0/，雾凇新版规范)，避免 1~3 字母与拼音简拼重码'}
+                </div>
+              </div>
+              <label className="toggle-switch" style={{ flexShrink: 0, marginLeft: '12px' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.melt_eng_all_case)}
+                  onChange={(e) => updateToggles({ melt_eng_all_case: e.target.checked })}
                 />
                 <span className="slider"></span>
               </label>

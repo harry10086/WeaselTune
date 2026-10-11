@@ -109,6 +109,7 @@ export interface RimeIceToggles {
   dict_comment_max_length: number;
   enable_radical_pinyin: boolean;
   enable_melt_eng: boolean;
+  melt_eng_all_case?: boolean; // 英语派生规则 (false: 4字母以上派生全小写防简拼重码, true: 任意长度英文大小写不敏感匹配支持apk/mac)
   enable_markdown: boolean;
   // 词库与字表定制
   dict_large_char: boolean;   // 41448 大字表
