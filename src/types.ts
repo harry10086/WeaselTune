@@ -35,6 +35,8 @@ export interface ColorSchemeItem {
   hilited_candidate_text_color?: string;
   hilited_candidate_back_color?: string;
   hilited_comment_text_color?: string;
+  hilited_mark_color?: string;
+  shadow_color?: string;
   border_color: string;
   comment_text_color: string;
 }
@@ -72,6 +74,7 @@ export interface AppOptionItem {
 
 export interface KeyBindingsConfig {
   page_up_down_keys: string[]; // 支持多选: "comma_period", "minus_equal", "bracket", "pageup_down"
+  caps_lock?: string; // Caps Lock 动作: "clear", "inline_ascii", "commit_code", "commit_text", "noop"
   shift_l: string;
   shift_r: string;
   control_l: string;

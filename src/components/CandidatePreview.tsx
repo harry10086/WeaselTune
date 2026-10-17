@@ -240,6 +240,21 @@ export const CandidatePreview: React.FC<CandidatePreviewProps> = ({
                     whiteSpace: 'nowrap',
                   }}
                 >
+                  {/* 高亮候选词标记条 (如 Win11 hilited_mark_color 侧边强调色条) */}
+                  {isHilited && currentScheme.hilited_mark_color && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: '3px',
+                        height: '14px',
+                        borderRadius: '2px',
+                        backgroundColor: currentScheme.hilited_mark_color,
+                        marginRight: '2px',
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+
                   {/* 序号 */}
                   <span
                     style={{

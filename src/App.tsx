@@ -30,6 +30,7 @@ import {
   AlertCircle,
   Sun,
   Moon,
+  ExternalLink,
 } from 'lucide-react';
 
 export function App() {
@@ -61,6 +62,15 @@ export function App() {
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  const openRepoUrl = async () => {
+    try {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl('https://github.com/harry10086/WeaselTune');
+    } catch {
+      window.open('https://github.com/harry10086/WeaselTune', '_blank');
+    }
   };
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
@@ -177,6 +187,7 @@ export function App() {
         ],
         key_bindings: {
           page_up_down_keys: ['comma_period', 'minus_equal'],
+          caps_lock: 'clear',
           shift_l: 'inline_ascii',
           shift_r: 'commit_code',
           control_l: 'noop',
@@ -454,8 +465,33 @@ export function App() {
             }}
           />
           <div>
-            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
-              WeaselTune
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
+                WeaselTune
+              </span>
+              <button
+                type="button"
+                onClick={openRepoUrl}
+                title="访问 GitHub 项目仓库 (WeaselTune)"
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--accent)',
+                  backgroundColor: 'var(--accent-glow)',
+                  padding: '2px 7px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-accent)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  lineHeight: '1',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>v0.2.3</span>
+                <ExternalLink size={11} />
+              </button>
             </div>
           </div>
         </div>

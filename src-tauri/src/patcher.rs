@@ -17,6 +17,10 @@ pub struct ColorSchemeItem {
     pub hilited_candidate_text_color: Option<String>,
     pub hilited_candidate_back_color: Option<String>,
     pub hilited_comment_text_color: Option<String>,
+    #[serde(default)]
+    pub hilited_mark_color: Option<String>,
+    #[serde(default)]
+    pub shadow_color: Option<String>,
     pub border_color: String,
     pub comment_text_color: String,
 }
@@ -88,9 +92,15 @@ fn default_switcher_hotkeys() -> Vec<String> {
     vec!["Control+grave".to_string(), "F4".to_string()]
 }
 
+fn default_caps_lock() -> String {
+    "clear".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct KeyBindingsConfig {
     pub page_up_down_keys: Vec<String>, // 支持多选: "comma_period", "minus_equal", "bracket"
+    #[serde(default = "default_caps_lock")]
+    pub caps_lock: String,
     pub shift_l: String,
     pub shift_r: String,
     pub control_l: String,
@@ -104,6 +114,7 @@ impl Default for KeyBindingsConfig {
     fn default() -> Self {
         Self {
             page_up_down_keys: vec!["comma_period".to_string(), "minus_equal".to_string()],
+            caps_lock: "clear".to_string(),
             shift_l: "inline_ascii".to_string(),
             shift_r: "commit_code".to_string(),
             control_l: "noop".to_string(),
@@ -560,6 +571,9 @@ pub fn parse_color_scheme_yaml(yaml_str: &str) -> Result<ColorSchemeItem, String
         .or_else(|| Some(hilited_text_color.clone()));
     let hilited_comment_text_color = extract_opt_color("hilited_comment_text_color");
 
+    let hilited_mark_color = extract_opt_color("hilited_mark_color");
+    let shadow_color = extract_opt_color("shadow_color");
+
     let border_color = extract_color("border_color", "#E2E8F0");
     let comment_text_color = extract_color("comment_text_color", "#888888");
 
@@ -577,6 +591,8 @@ pub fn parse_color_scheme_yaml(yaml_str: &str) -> Result<ColorSchemeItem, String
         hilited_candidate_text_color,
         hilited_candidate_back_color,
         hilited_comment_text_color,
+        hilited_mark_color,
+        shadow_color,
         border_color,
         comment_text_color,
     })
@@ -600,6 +616,8 @@ pub fn is_scheme_modified(curr: &ColorSchemeItem, defaults: &[ColorSchemeItem]) 
             && opt_eq(&curr.hilited_candidate_back_color, &def.hilited_candidate_back_color)
             && opt_eq(&curr.hilited_candidate_text_color, &def.hilited_candidate_text_color)
             && opt_eq(&curr.hilited_comment_text_color, &def.hilited_comment_text_color)
+            && opt_eq(&curr.hilited_mark_color, &def.hilited_mark_color)
+            && opt_eq(&curr.shadow_color, &def.shadow_color)
             && eq(&curr.border_color, &def.border_color)
             && eq(&curr.comment_text_color, &def.comment_text_color))
     } else {
@@ -609,6 +627,44 @@ pub fn is_scheme_modified(curr: &ColorSchemeItem, defaults: &[ColorSchemeItem]) 
 
 pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
     vec![
+        ColorSchemeItem {
+            id: "win11light".to_string(),
+            name: "Win11 浅色 / Win11light".to_string(),
+            author: "Microsoft / User".to_string(),
+            color_format: Some("argb".to_string()),
+            back_color: "#F9F9F9".to_string(),
+            text_color: "#191919".to_string(),
+            label_color: "#191919".to_string(),
+            candidate_text_color: "#191919".to_string(),
+            hilited_text_color: "#191919".to_string(),
+            hilited_back_color: "#F0F0F0".to_string(),
+            hilited_candidate_text_color: Some("#191919".to_string()),
+            hilited_candidate_back_color: Some("#F0F0F0".to_string()),
+            hilited_comment_text_color: None,
+            hilited_mark_color: Some("#0067C0".to_string()),
+            shadow_color: Some("#00000020".to_string()),
+            border_color: "#00000000".to_string(),
+            comment_text_color: "#888888".to_string(),
+        },
+        ColorSchemeItem {
+            id: "win11dark".to_string(),
+            name: "Win11 暗色 / Win11Dark".to_string(),
+            author: "Microsoft / User".to_string(),
+            color_format: Some("argb".to_string()),
+            back_color: "#2C2C2C".to_string(),
+            text_color: "#F9F9F9".to_string(),
+            label_color: "#F9F9F9".to_string(),
+            candidate_text_color: "#F9F9F9".to_string(),
+            hilited_text_color: "#F9F9F9".to_string(),
+            hilited_back_color: "#383838".to_string(),
+            hilited_candidate_text_color: Some("#F9F9F9".to_string()),
+            hilited_candidate_back_color: Some("#383838".to_string()),
+            hilited_comment_text_color: None,
+            hilited_mark_color: Some("#4CC2FF".to_string()),
+            shadow_color: Some("#00000020".to_string()),
+            border_color: "#00000000".to_string(),
+            comment_text_color: "#888888".to_string(),
+        },
         ColorSchemeItem {
             id: "nord".to_string(),
             name: "远山雪 · Nord (推荐)".to_string(),
@@ -623,6 +679,8 @@ pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
             hilited_candidate_text_color: Some("#2E3440".to_string()),
             hilited_candidate_back_color: Some("#8FBCBB".to_string()),
             hilited_comment_text_color: Some("#BF616A".to_string()),
+            hilited_mark_color: None,
+            shadow_color: None,
             border_color: "#D8DEE9".to_string(),
             comment_text_color: "#D08770".to_string(),
         },
@@ -640,6 +698,8 @@ pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
             hilited_candidate_text_color: Some("#3A006F".to_string()),
             hilited_candidate_back_color: Some("#ACD6FF".to_string()),
             hilited_comment_text_color: Some("#009100".to_string()),
+            hilited_mark_color: None,
+            shadow_color: None,
             border_color: "#AAAAFF".to_string(),
             comment_text_color: "#000000".to_string(),
         },
@@ -657,6 +717,8 @@ pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
             hilited_candidate_text_color: Some("#FFFFFF".to_string()),
             hilited_candidate_back_color: Some("#3498DB".to_string()),
             hilited_comment_text_color: None,
+            hilited_mark_color: None,
+            shadow_color: None,
             border_color: "#E2E8F0".to_string(),
             comment_text_color: "#95A5A6".to_string(),
         },
@@ -674,6 +736,8 @@ pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
             hilited_candidate_text_color: Some("#FFFFFF".to_string()),
             hilited_candidate_back_color: Some("#07C160".to_string()),
             hilited_comment_text_color: None,
+            hilited_mark_color: None,
+            shadow_color: None,
             border_color: "#E5E5E5".to_string(),
             comment_text_color: "#7F7F7F".to_string(),
         },
@@ -691,6 +755,8 @@ pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
             hilited_candidate_text_color: Some("#FFFFFF".to_string()),
             hilited_candidate_back_color: Some("#61AFEF".to_string()),
             hilited_comment_text_color: None,
+            hilited_mark_color: None,
+            shadow_color: None,
             border_color: "#282C34".to_string(),
             comment_text_color: "#E5C07B".to_string(),
         },
@@ -708,6 +774,8 @@ pub fn get_builtin_schemes() -> Vec<ColorSchemeItem> {
             hilited_candidate_text_color: Some("#FDF6E3".to_string()),
             hilited_candidate_back_color: Some("#268BD2".to_string()),
             hilited_comment_text_color: None,
+            hilited_mark_color: None,
+            shadow_color: None,
             border_color: "#073642".to_string(),
             comment_text_color: "#B58900".to_string(),
         },
@@ -766,6 +834,8 @@ pub fn load_preset_color_schemes(user_dir: &str) -> Vec<ColorSchemeItem> {
                                         None
                                     }
                                 });
+                            let hilited_mark = v.get("hilited_mark_color").and_then(|c| parse_weasel_color(c, fmt));
+                            let shadow = v.get("shadow_color").and_then(|c| parse_weasel_color(c, fmt));
                             let border = parse_weasel_color(v.get("border_color").unwrap_or(&serde_yaml::Value::Null), fmt)
                                 .unwrap_or_else(|| back.clone());
                             let comment = parse_weasel_color(v.get("comment_text_color").unwrap_or(&serde_yaml::Value::Null), fmt)
@@ -791,6 +861,8 @@ pub fn load_preset_color_schemes(user_dir: &str) -> Vec<ColorSchemeItem> {
                                 hilited_candidate_text_color: hilited_candidate_text,
                                 hilited_candidate_back_color: hilited_candidate_back,
                                 hilited_comment_text_color: hilited_comment,
+                                hilited_mark_color: hilited_mark,
+                                shadow_color: shadow,
                                 border_color: border,
                                 comment_text_color: comment,
                             });
@@ -2009,8 +2081,23 @@ pub fn toggle_dict_mount_table(user_dir: &str, schema_id: &str, table_name: &str
     Ok(detect_schema_dict_mounts(user_dir, schema_id))
 }
 
+fn decode_hex_utf8(hex: &str) -> Option<String> {
+    let clean = hex.trim();
+    if clean.is_empty() || clean.len() % 2 != 0 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(clean.len() / 2);
+    for i in (0..clean.len()).step_by(2) {
+        let b = u8::from_str_radix(&clean[i..i + 2], 16).ok()?;
+        bytes.push(b);
+    }
+    String::from_utf8(bytes).ok()
+}
+
 pub fn import_dict_file_dialog(user_dir: &str) -> Result<Option<CustomDictItem>, String> {
     let script = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Title = '请选择要导入的 Rime 词库文件 (.dict.yaml 或 .txt)'
@@ -2019,7 +2106,8 @@ $dialog.Multiselect = $false
 $form = New-Object System.Windows.Forms.Form
 $form.TopMost = $true
 if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
-    Write-Output $dialog.FileName
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($dialog.FileName)
+    Write-Output ([System.BitConverter]::ToString($bytes) -replace '-','')
 }
 "#;
 
@@ -2034,7 +2122,12 @@ if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
         .output()
         .map_err(|e| format!("启动文件选择器失败: {}", e))?;
 
-    let selected_path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+
+    let selected_path_str = decode_hex_utf8(&raw).unwrap_or(raw);
     if selected_path_str.is_empty() {
         return Ok(None);
     }
@@ -2752,6 +2845,8 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                                 hilited_candidate_text_color: Some("#FFFFFF".to_string()),
                                 hilited_candidate_back_color: Some("#3498DB".to_string()),
                                 hilited_comment_text_color: None,
+                                hilited_mark_color: None,
+                                shadow_color: None,
                                 border_color: "#E2E8F0".to_string(),
                                 comment_text_color: "#888888".to_string(),
                             });
@@ -2812,6 +2907,8 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                                         "hilited_candidate_text_color" => scheme.hilited_candidate_text_color = Some(color_val),
                                         "hilited_candidate_back_color" => scheme.hilited_candidate_back_color = Some(color_val),
                                         "hilited_comment_text_color" => scheme.hilited_comment_text_color = Some(color_val),
+                                        "hilited_mark_color" => scheme.hilited_mark_color = Some(color_val),
+                                        "shadow_color" => scheme.shadow_color = Some(color_val),
                                         "border_color" => scheme.border_color = color_val,
                                         "comment_text_color" => scheme.comment_text_color = color_val,
                                         _ => {}
@@ -2839,6 +2936,8 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                                 if let Some(v) = sv.get("hilited_candidate_text_color") { scheme.hilited_candidate_text_color = Some(parse(v)); }
                                 if let Some(v) = sv.get("hilited_candidate_back_color") { scheme.hilited_candidate_back_color = Some(parse(v)); }
                                 if let Some(v) = sv.get("hilited_comment_text_color") { scheme.hilited_comment_text_color = Some(parse(v)); }
+                                if let Some(v) = sv.get("hilited_mark_color") { scheme.hilited_mark_color = Some(parse(v)); }
+                                if let Some(v) = sv.get("shadow_color") { scheme.shadow_color = Some(parse(v)); }
                                 if let Some(v) = sv.get("border_color") { scheme.border_color = parse(v); }
                                 if let Some(v) = sv.get("comment_text_color") { scheme.comment_text_color = parse(v); }
                             }
@@ -2878,10 +2977,14 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                     if let Some(b) = detect_switch_reset(&val, "emoji") { rime_ice_toggles.emoji = b; }
 
                     if let Some(ak) = patch.get("ascii_composer/switch_key") {
+                        if let Some(s) = ak.get("Caps_Lock").and_then(|v| v.as_str()) { key_bindings.caps_lock = s.to_string(); }
                         if let Some(s) = ak.get("Shift_L").and_then(|v| v.as_str()) { key_bindings.shift_l = s.to_string(); }
                         if let Some(s) = ak.get("Shift_R").and_then(|v| v.as_str()) { key_bindings.shift_r = s.to_string(); }
                         if let Some(s) = ak.get("Control_L").and_then(|v| v.as_str()) { key_bindings.control_l = s.to_string(); }
                         if let Some(s) = ak.get("Control_R").and_then(|v| v.as_str()) { key_bindings.control_r = s.to_string(); }
+                    }
+                    if let Some(b) = patch.get("ascii_composer/good_old_caps_lock").and_then(|v| v.as_bool()) {
+                        key_bindings.good_old_caps_lock = b;
                     }
 
                     if let Some(hk) = patch.get("switcher/hotkeys").or_else(|| patch.get("switcher").and_then(|s| s.get("hotkeys"))) {
@@ -3213,6 +3316,14 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/hilited_comment_text_color\": {}\n", sid, to_weasel_hex_formatted(h_comment, fmt)));
             }
 
+            if let Some(ref h_mark) = curr.hilited_mark_color {
+                weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/hilited_mark_color\": {}\n", sid, to_weasel_hex_formatted(h_mark, fmt)));
+            }
+
+            if let Some(ref shadow) = curr.shadow_color {
+                weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/shadow_color\": {}\n", sid, to_weasel_hex_formatted(shadow, fmt)));
+            }
+
             weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/border_color\": {}\n", sid, to_weasel_hex_formatted(&curr.border_color, fmt)));
             weasel_yaml.push_str(&format!("  \"preset_color_schemes/{}/comment_text_color\": {}\n", sid, to_weasel_hex_formatted(&curr.comment_text_color, fmt)));
         }
@@ -3235,6 +3346,12 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
 
     default_yaml.push_str("\n  # 中英文快捷切换 (ascii_composer)\n");
     default_yaml.push_str("  ascii_composer/switch_key:\n");
+    let caps_action = if config.key_bindings.caps_lock.trim().is_empty() {
+        "clear"
+    } else {
+        config.key_bindings.caps_lock.as_str()
+    };
+    default_yaml.push_str(&format!("    Caps_Lock: {}\n", caps_action));
     default_yaml.push_str(&format!("    Shift_L: {}\n", config.key_bindings.shift_l));
     default_yaml.push_str(&format!("    Shift_R: {}\n", config.key_bindings.shift_r));
     default_yaml.push_str(&format!("    Control_L: {}\n", config.key_bindings.control_l));

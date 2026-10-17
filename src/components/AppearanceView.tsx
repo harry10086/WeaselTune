@@ -20,6 +20,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
+  Download,
+  Copy,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -45,6 +47,12 @@ export const AppearanceView: React.FC<AppearanceViewProps> = ({
   const [showFontPicker, setShowFontPicker] = useState(false);
   const [resetToast, setResetToast] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // 皮肤导出与测试输入框状态
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportedYaml, setExportedYaml] = useState('');
+  const [copiedToast, setCopiedToast] = useState(false);
+  const [testInputText, setTestInputText] = useState('');
 
   // 新建/导入皮肤弹窗状态
   const [showNewModal, setShowNewModal] = useState(false);
@@ -269,8 +277,136 @@ hilited_candidate_label_color: 0xFFD9F99D`;
     setTimeout(() => setSuccessToast(null), 3500);
   };
 
+  const generateSchemeYaml = (scheme: ColorSchemeItem) => {
+    const sid = scheme.id || 'custom_scheme';
+    const fmt = scheme.color_format || 'argb';
+
+    const toRimeHex = (hex: string, format: string) => {
+      let clean = hex.replace('#', '').replace(/^0x/i, '');
+      if (format === 'argb') {
+        if (clean.length === 6) return `0xff${clean.toLowerCase()}`;
+        if (clean.length === 8) {
+          return `0x${clean.slice(6, 8).toLowerCase()}${clean.slice(0, 6).toLowerCase()}`;
+        }
+        return `0x${clean.padStart(8, 'f').toLowerCase()}`;
+      } else if (format === 'rgba') {
+        return `0x${clean.slice(0, 6).toLowerCase()}`;
+      } else {
+        if (clean.length >= 6) {
+          const r = clean.slice(0, 2);
+          const g = clean.slice(2, 4);
+          const b = clean.slice(4, 6);
+          return `0x${b}${g}${r}`.toLowerCase();
+        }
+        return `0x${clean.toLowerCase()}`;
+      }
+    };
+
+    let yaml = `# Rime Weasel 皮肤配色方案: ${scheme.name}\n`;
+    yaml += `preset_color_schemes:\n`;
+    yaml += `  ${sid}:\n`;
+    yaml += `    name: "${scheme.name}"\n`;
+    yaml += `    author: "${scheme.author || 'User'}"\n`;
+    if (fmt !== 'abgr') {
+      yaml += `    color_format: ${fmt}\n`;
+    }
+    yaml += `    back_color: ${toRimeHex(scheme.back_color, fmt)}\n`;
+    yaml += `    text_color: ${toRimeHex(scheme.text_color, fmt)}\n`;
+    yaml += `    label_color: ${toRimeHex(scheme.label_color, fmt)}\n`;
+    yaml += `    candidate_text_color: ${toRimeHex(scheme.candidate_text_color, fmt)}\n`;
+    yaml += `    comment_text_color: ${toRimeHex(scheme.comment_text_color, fmt)}\n`;
+    yaml += `    hilited_text_color: ${toRimeHex(scheme.hilited_text_color, fmt)}\n`;
+    yaml += `    hilited_back_color: ${toRimeHex(scheme.hilited_back_color, fmt)}\n`;
+    if (scheme.hilited_candidate_text_color) {
+      yaml += `    hilited_candidate_text_color: ${toRimeHex(scheme.hilited_candidate_text_color, fmt)}\n`;
+    }
+    if (scheme.hilited_candidate_back_color) {
+      yaml += `    hilited_candidate_back_color: ${toRimeHex(scheme.hilited_candidate_back_color, fmt)}\n`;
+    }
+    if (scheme.hilited_comment_text_color) {
+      yaml += `    hilited_comment_text_color: ${toRimeHex(scheme.hilited_comment_text_color, fmt)}\n`;
+    }
+    if (scheme.hilited_mark_color) {
+      yaml += `    hilited_mark_color: ${toRimeHex(scheme.hilited_mark_color, fmt)}\n`;
+    }
+    if (scheme.shadow_color) {
+      yaml += `    shadow_color: ${toRimeHex(scheme.shadow_color, fmt)}\n`;
+    }
+    yaml += `    border_color: ${toRimeHex(scheme.border_color, fmt)}\n`;
+    return yaml;
+  };
+
+  const handleOpenExportModal = () => {
+    setExportedYaml(generateSchemeYaml(currentScheme));
+    setShowExportModal(true);
+    setCopiedToast(false);
+  };
+
+  const handleCopyExported = async () => {
+    try {
+      await navigator.clipboard.writeText(exportedYaml);
+      setCopiedToast(true);
+      setTimeout(() => setCopiedToast(false), 2500);
+    } catch {
+      // fallback
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+      {/* 实时打字测试区 (在界面上方提供文本框供用户随时呼出输入法测试效果与 Caps Lock) */}
+      <div
+        className="glass-panel"
+        style={{
+          padding: '14px 20px',
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '14px',
+          backgroundColor: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent)', fontWeight: 700, fontSize: '14px', flexShrink: 0 }}>
+          <Sparkles size={18} />
+          <span>输入测试:</span>
+        </div>
+        <input
+          type="text"
+          value={testInputText}
+          onChange={(e) => setTestInputText(e.target.value)}
+          placeholder="在此处直接打字测试小狼毫候选框外观、中英文切换及 Caps Lock 效果..."
+          style={{
+            flex: 1,
+            padding: '9px 14px',
+            borderRadius: '8px',
+            backgroundColor: 'var(--bg-tertiary)',
+            color: 'var(--text-main)',
+            border: '1px solid var(--border)',
+            fontSize: '14px',
+            outline: 'none',
+          }}
+        />
+        {testInputText && (
+          <button
+            type="button"
+            onClick={() => setTestInputText('')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              backgroundColor: 'var(--bg-elevated)',
+              color: 'var(--text-muted)',
+              border: '1px solid var(--border)',
+              fontSize: '12px',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            清空
+          </button>
+        )}
+      </div>
+
       {/* 实时渲染预览区 (所见即所得，颜色调整立刻生效) */}
       <CandidatePreview styleConfig={styleConfig} activeScheme={currentScheme} toggles={toggles} />
 
@@ -313,33 +449,57 @@ hilited_candidate_label_color: 0xFFD9F99D`;
               <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>
                 选择基础皮肤方案
               </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowNewModal(true);
-                  if (!yamlText) {
-                    handleFillSample();
-                  }
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                  color: '#38bdf8',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-                title="新建自定义皮肤方案或直接复制粘贴 YAML 代码导入"
-              >
-                <Plus size={14} />
-                <span>新建皮肤方案</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={handleOpenExportModal}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(167, 139, 250, 0.12)',
+                    color: '#a78bfa',
+                    border: '1px solid rgba(167, 139, 250, 0.3)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  title="导出当前皮肤方案为 Rime 标准 YAML 配置代码"
+                >
+                  <Download size={14} />
+                  <span>导出皮肤 YAML</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewModal(true);
+                    if (!yamlText) {
+                      handleFillSample();
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                    color: '#38bdf8',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  title="新建自定义皮肤方案或直接复制粘贴 YAML 代码导入"
+                >
+                  <Plus size={14} />
+                  <span>新建皮肤方案</span>
+                </button>
+              </div>
             </div>
             <select
               value={styleConfig.color_scheme}
@@ -1678,6 +1838,151 @@ hilited_candidate_back_color: 0xFF4D7C0F
                 <Check size={16} />
                 <span>创建并立即应用</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 导出当前皮肤 YAML 模态弹窗 */}
+      {showExportModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px',
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: '680px',
+              backgroundColor: 'var(--bg-secondary)',
+              borderRadius: '16px',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* 弹窗头部 */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: 'var(--text-main)' }}>
+                <Download size={18} color="#a78bfa" />
+                <span>导出皮肤方案 YAML (标准 Rime 格式)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  borderRadius: '4px',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* 弹窗内容 */}
+            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                以下是当前选中的皮肤【<strong>{currentScheme.name}</strong>】的标准 YAML 配置代码（包含 <code>color_format: {currentScheme.color_format || 'argb'}</code> 与完整色值定义）。您可以直接复制并粘贴到 <code>weasel.custom.yaml</code> 的 <code>preset_color_schemes</code> 块中，或分享给其他小狼毫用户。
+              </div>
+
+              <textarea
+                readOnly
+                value={exportedYaml}
+                rows={14}
+                className="mono"
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--bg-elevated)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border)',
+                  fontSize: '12px',
+                  lineHeight: '1.6',
+                  outline: 'none',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+
+            {/* 弹窗底部 */}
+            <div
+              style={{
+                padding: '14px 20px',
+                borderTop: '1px solid var(--border)',
+                backgroundColor: 'var(--bg-tertiary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: '12px', color: copiedToast ? '#10b981' : 'var(--text-dim)', fontWeight: copiedToast ? 700 : 400 }}>
+                {copiedToast ? '✓ YAML 代码已成功复制到剪贴板！' : `配色方案 ID: ${currentScheme.id}`}
+              </span>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowExportModal(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    backgroundColor: 'var(--bg-elevated)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyExported}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    backgroundColor: copiedToast ? '#10b981' : '#a78bfa',
+                    color: '#ffffff',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {copiedToast ? <Check size={16} /> : <Copy size={16} />}
+                  <span>{copiedToast ? '已复制' : '一键复制 YAML'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

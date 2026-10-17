@@ -86,8 +86,23 @@ pub fn trigger_rime_sync(custom_deployer: Option<String>) -> DeployResult {
     )
 }
 
+fn decode_hex_utf8(hex: &str) -> Option<String> {
+    let clean = hex.trim();
+    if clean.is_empty() || clean.len() % 2 != 0 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(clean.len() / 2);
+    for i in (0..clean.len()).step_by(2) {
+        let b = u8::from_str_radix(&clean[i..i + 2], 16).ok()?;
+        bytes.push(b);
+    }
+    String::from_utf8(bytes).ok()
+}
+
 pub fn pick_sync_folder() -> Result<Option<String>, String> {
     let script = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = '请选择 Rime 同步文件夹'
@@ -95,7 +110,8 @@ $dialog.ShowNewFolderButton = $true
 $form = New-Object System.Windows.Forms.Form
 $form.TopMost = $true
 if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
-    Write-Output $dialog.SelectedPath
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)
+    Write-Output ([System.BitConverter]::ToString($bytes) -replace '-','')
 }
 "#;
 
@@ -110,7 +126,12 @@ if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
         .output()
         .map_err(|e| format!("启动文件夹选择窗口失败: {}", e))?;
 
-    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+
+    let path_str = decode_hex_utf8(&raw).unwrap_or(raw);
     if path_str.is_empty() {
         Ok(None)
     } else {

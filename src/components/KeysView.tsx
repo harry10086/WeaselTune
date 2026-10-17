@@ -184,6 +184,14 @@ export const KeysView: React.FC<KeysViewProps> = ({
     { value: 'noop', label: '无动作 (保持中文)' },
   ];
 
+  const capsOptions = [
+    { value: 'clear', label: '清除未完成输入并切西文 (clear - 官方默认/推荐)' },
+    { value: 'inline_ascii', label: '保留行内编码并切西文 (inline_ascii)' },
+    { value: 'commit_code', label: '顶出拼音编码并切西文 (commit_code)' },
+    { value: 'commit_text', label: '首选词上屏并切西文 (commit_text)' },
+    { value: 'noop', label: '无动作 (noop)' },
+  ];
+
   const pagePresets = [
     { id: 'comma_period', label: '，(逗号) / 。(句号)', desc: '右手主键盘常用翻页' },
     { id: 'minus_equal', label: '-(减号) / =(等号)', desc: '经典拼音习惯翻页' },
@@ -319,16 +327,16 @@ export const KeysView: React.FC<KeysViewProps> = ({
             </select>
           </div>
 
-          {/* Caps Lock 键行为模式 */}
-          <div style={{ padding: '16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)', gridColumn: '1 / -1' }}>
+          {/* Caps Lock 切换与大写锁定行为 */}
+          <div style={{ padding: '16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)', gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>
-                  Caps Lock 经典大写锁定行为 (good_old_caps_lock)
+                  Caps Lock 经典大写锁定模式 (good_old_caps_lock)
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '3px' }}>
                   {keyBindings.good_old_caps_lock ?? true
-                    ? '开启：按 CapsLock 键严格锁定大写输入；关闭：按 CapsLock 键临时快速切换中英文输入'
+                    ? '开启（推荐）：按 CapsLock 键严格锁定大写输入；关闭：按 CapsLock 键临时快速切换中英文输入'
                     : '关闭：按 CapsLock 键临时快速切换中英文输入；开启：严格锁定大写输入'}
                 </div>
               </div>
@@ -340,6 +348,35 @@ export const KeysView: React.FC<KeysViewProps> = ({
                 />
                 <span className="slider"></span>
               </label>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                Caps Lock 键切换动作 (Caps_Lock)
+              </label>
+              <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '8px' }}>
+                在生成 switch_key 时明确指定 Caps_Lock 动作（推荐 clear 清除半截拼音切入西文直通，彻底避免大写状态下输入法异常及退格卡死）。
+              </div>
+              <select
+                value={keyBindings.caps_lock || 'clear'}
+                onChange={(e) => updateKb({ caps_lock: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--bg-elevated)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border)',
+                  fontSize: '14px',
+                  outline: 'none',
+                }}
+              >
+                {capsOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
