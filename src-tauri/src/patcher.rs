@@ -2653,6 +2653,29 @@ pub fn get_schema_toggles_and_fuzzy(user_dir: &str, schema_id: &str) -> SchemaSt
                     if patch_text.contains("41448") {
                         toggles.dict_large_char = true;
                     }
+
+                    // Octagram 语言模型探测 (方案特定 custom.yaml)
+                    if let Some(lang) = patch.get("grammar/language").and_then(|v| v.as_str())
+                        .or_else(|| patch.get("grammar").and_then(|g| g.get("language")).and_then(|v| v.as_str()))
+                    {
+                        let trimmed = lang.trim();
+                        if !trimmed.is_empty() && trimmed != "~" && trimmed != "null" {
+                            toggles.enable_grammar = true;
+                            toggles.grammar_model = trimmed.to_string();
+                        } else {
+                            toggles.enable_grammar = false;
+                        }
+                    }
+                    if let Some(max_l) = patch.get("grammar/collocation_max_length").and_then(|v| v.as_u64())
+                        .or_else(|| patch.get("grammar").and_then(|g| g.get("collocation_max_length")).and_then(|v| v.as_u64()))
+                    {
+                        toggles.grammar_collocation_max_length = max_l as u32;
+                    }
+                    if let Some(min_l) = patch.get("grammar/collocation_min_length").and_then(|v| v.as_u64())
+                        .or_else(|| patch.get("grammar").and_then(|g| g.get("collocation_min_length")).and_then(|v| v.as_u64()))
+                    {
+                        toggles.grammar_collocation_min_length = min_l as u32;
+                    }
                 }
             }
         }
@@ -2678,6 +2701,14 @@ pub fn get_schema_toggles_and_fuzzy(user_dir: &str, schema_id: &str) -> SchemaSt
                     toggles.melt_eng_all_case = false;
                 }
             }
+        }
+    }
+
+    // 若未显式配置语言模型名称但目录下检测到了 .gram 模型，预填默认模型
+    if toggles.grammar_model.is_empty() {
+        let scanned_models = crate::detector::scan_grammar_models(&u_path);
+        if let Some(first) = scanned_models.first() {
+            toggles.grammar_model = first.name.clone();
         }
     }
 
@@ -3714,7 +3745,8 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
     // D. 万象拼音 (wanxiang 及变体)
     for wx_id in &["wanxiang", "wanxiang_pinyin", "wanxiang_t9", "wanxiang_t9i", "wanxiang_lite"] {
         let wx_schema = u_path.join(format!("{}.schema.yaml", wx_id));
-        if wx_schema.exists() || config.schemas.iter().any(|s| s.enabled && s.id == *wx_id) {
+        let wx_custom = u_path.join(format!("{}.custom.yaml", wx_id));
+        if wx_schema.exists() || wx_custom.exists() || config.schemas.iter().any(|s| s.id == *wx_id) {
             let mut wx_yaml = String::new();
             wx_yaml.push_str("# WeaselTune 生成的万象拼音专属定制补丁\n");
             wx_yaml.push_str("patch:\n");

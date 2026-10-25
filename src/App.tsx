@@ -489,7 +489,7 @@ export function App() {
                   transition: 'all 0.15s ease',
                 }}
               >
-                <span>v0.2.3</span>
+                <span>v0.2.4</span>
                 <ExternalLink size={11} />
               </button>
             </div>
