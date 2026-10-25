@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FuzzyPinyinConfig, RimeIceToggles, DictFileInfo, CustomDictItem, SchemaItem, SchemeFeatureItem, SchemaDictMountsInfo } from '../types';
+import { FuzzyPinyinConfig, RimeIceToggles, DictFileInfo, CustomDictItem, SchemaItem, SchemeFeatureItem, SchemaDictMountsInfo, GrammarModelItem } from '../types';
 import {
   Smile,
   Sparkles,
@@ -20,6 +20,7 @@ import {
   Trash2,
   ShieldCheck,
   X,
+  Cpu,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -36,6 +37,7 @@ interface RimeIceViewProps {
   customDicts?: CustomDictItem[];
   schemas?: SchemaItem[];
   userDir?: string;
+  availableGrammarModels?: GrammarModelItem[];
   onFuzzyChange: (fuzzy: FuzzyPinyinConfig) => void;
   onTogglesChange: (toggles: RimeIceToggles) => void;
   onCustomDictsChange?: (customDicts: CustomDictItem[]) => void;
@@ -49,6 +51,7 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
   customDicts = [],
   schemas = [],
   userDir,
+  availableGrammarModels = [],
   onFuzzyChange,
   onTogglesChange,
   onCustomDictsChange,
@@ -1811,6 +1814,245 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                 />
                 <span className="slider"></span>
               </label>
+            </div>
+          )}
+
+          {/* Octagram 上下文语言模型卡片 (万象拼音 / 雾凇拼音 / 本地检测到 .gram 模型) */}
+          {(isWanxiang || isIce || availableGrammarModels.length > 0) && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                marginTop: '4px',
+                padding: '18px 20px',
+                borderRadius: '12px',
+                backgroundColor: toggles.enable_grammar ? 'rgba(2, 132, 199, 0.06)' : 'var(--bg-tertiary)',
+                border: toggles.enable_grammar ? '1.5px solid #0284c7' : '1px solid var(--border)',
+                transition: 'all 0.25s ease',
+              }}
+            >
+              {/* 卡片顶部行 */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      backgroundColor: toggles.enable_grammar ? '#0284c7' : 'rgba(148, 163, 184, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: toggles.enable_grammar ? '#ffffff' : 'var(--text-dim)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Cpu size={20} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-main)' }}>
+                        Octagram 上下文语言模型 (整句预测与智能加权)
+                      </span>
+                      {availableGrammarModels.length > 0 ? (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                            color: '#22c55e',
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#22c55e' }}></span>
+                          已识别本地模型 ({availableGrammarModels.map((m) => m.filename).join(', ')})
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            backgroundColor: 'rgba(234, 179, 8, 0.15)',
+                            color: '#eab308',
+                            fontWeight: 600,
+                          }}
+                        >
+                          未检测到 .gram 模型文件
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                      通过 n-gram 统计语法模型对上下文进行多词搭配判定，大幅提升整句输入与生僻搭配首选命中率
+                    </div>
+                  </div>
+                </div>
+
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(toggles.enable_grammar)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      let defaultModel = toggles.grammar_model;
+                      if (checked && (!defaultModel || defaultModel.trim() === '')) {
+                        defaultModel = availableGrammarModels[0]?.name || (isWanxiang ? 'wanxiang-lts-zh-hans' : 'zh-hans-t-essay-bgw');
+                      }
+                      updateToggles({
+                        enable_grammar: checked,
+                        grammar_model: defaultModel,
+                        grammar_collocation_max_length: toggles.grammar_collocation_max_length || (isWanxiang ? 6 : 5),
+                        grammar_collocation_min_length: toggles.grammar_collocation_min_length || 2,
+                      });
+                    }}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
+
+              {/* 展开的语言模型参数配置 */}
+              {toggles.enable_grammar && (
+                <div
+                  style={{
+                    marginTop: '16px',
+                    paddingTop: '16px',
+                    borderTop: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '14px',
+                  }}
+                >
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '14px', alignItems: 'end' }}>
+                    {/* 模型文件选择 */}
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', display: 'block', marginBottom: '6px' }}>
+                        绑定的语法模型名称 (grammar/language)
+                      </label>
+                      {availableGrammarModels.length > 0 ? (
+                        <select
+                          value={toggles.grammar_model || availableGrammarModels[0]?.name || ''}
+                          onChange={(e) => updateToggles({ grammar_model: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-main)',
+                            fontSize: '13px',
+                          }}
+                        >
+                          {availableGrammarModels.map((m) => (
+                            <option key={m.name} value={m.name}>
+                              {m.filename} ({m.size_formatted})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={toggles.grammar_model || (isWanxiang ? 'wanxiang-lts-zh-hans' : 'zh-hans-t-essay-bgw')}
+                          onChange={(e) => updateToggles({ grammar_model: e.target.value })}
+                          placeholder="模型文件名（不含 .gram 后缀）"
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-main)',
+                            fontSize: '13px',
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    {/* 搭配最大长度 */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>
+                          搭配最大长度 <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 500 }}>(推荐 5~6 词)</span>
+                        </label>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#0284c7' }}>
+                          {toggles.grammar_collocation_max_length ?? (isWanxiang ? 6 : 5)} 词
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="2"
+                        max="8"
+                        step="1"
+                        value={toggles.grammar_collocation_max_length ?? (isWanxiang ? 6 : 5)}
+                        onChange={(e) => updateToggles({ grammar_collocation_max_length: parseInt(e.target.value, 10) })}
+                        style={{ width: '100%', cursor: 'pointer' }}
+                        title="万象官方推荐 5~6 词，兼顾长句命中率与零延迟响应；过大数值可能引起长句输入卡顿"
+                      />
+                    </div>
+
+                    {/* 搭配最小长度 */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>搭配最小长度</label>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#0284c7' }}>
+                          {toggles.grammar_collocation_min_length ?? 2} 词
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="4"
+                        step="1"
+                        value={toggles.grammar_collocation_min_length ?? 2}
+                        onChange={(e) => updateToggles({ grammar_collocation_min_length: parseInt(e.target.value, 10) })}
+                        style={{ width: '100%', cursor: 'pointer' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 贴心说明与提示 */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      backgroundColor: 'var(--bg-secondary)',
+                      fontSize: '12px',
+                      color: 'var(--text-dim)',
+                    }}
+                  >
+                    <span>
+                      💡 万象拼音官方针对词库加权进行了精密调校，搭配 <code>wanxiang-lts-zh-hans.gram</code> 可获得极佳的长句联想体验。修改后请点击右上角【保存并部署】。
+                    </span>
+                    {userDir && (
+                      <button
+                        type="button"
+                        onClick={() => invoke('open_in_explorer', { path: userDir })}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          backgroundColor: 'var(--bg-tertiary)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          marginLeft: '12px',
+                        }}
+                      >
+                        <FolderOpen size={13} /> 打开配置目录
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

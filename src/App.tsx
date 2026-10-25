@@ -678,6 +678,7 @@ export function App() {
                   customDicts={config.custom_dicts || []}
                   schemas={config.schemas}
                   userDir={env?.rime_user_dir}
+                  availableGrammarModels={env?.available_grammar_models}
                   onFuzzyChange={(newFuzzy) => setConfig({ ...config, fuzzy_pinyin: newFuzzy })}
                   onTogglesChange={(newToggles) => setConfig({ ...config, rime_ice_toggles: newToggles })}
                   onCustomDictsChange={(newCustomDicts) => setConfig({ ...config, custom_dicts: newCustomDicts })}

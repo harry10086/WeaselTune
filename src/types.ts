@@ -1,3 +1,10 @@
+export interface GrammarModelItem {
+  name: string;
+  filename: string;
+  size_bytes: number;
+  size_formatted: string;
+}
+
 export interface EnvironmentStatus {
   weasel_installed: boolean;
   weasel_version: string;
@@ -11,6 +18,7 @@ export interface EnvironmentStatus {
   total_phrases_count: number;
   recommended_phrase_file?: string;
   is_double_pinyin?: boolean;
+  available_grammar_models?: GrammarModelItem[];
 }
 
 export interface PhraseFileInfo {
@@ -132,6 +140,11 @@ export interface RimeIceToggles {
   super_tips?: boolean;      // 超级实时数据提示区 (万象)
   charset_filter?: boolean;  // 字符集过滤 (万象: 8105通规 / 全字表)
   abbrev?: boolean;          // 公共简码加速匹配 (万象)
+  // Octagram 语言模型
+  enable_grammar?: boolean;  // 上下文语言模型开关
+  grammar_model?: string;    // 模型标识名 (如 wanxiang-lts-zh-hans)
+  grammar_collocation_max_length?: number; // 搭配最大长度 (默认 6)
+  grammar_collocation_min_length?: number; // 搭配最小长度 (默认 2)
 }
 
 export interface SchemaItem {

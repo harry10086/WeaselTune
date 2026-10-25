@@ -194,6 +194,11 @@ WeaselTune/
 
 ```
 ## 📦 更新
+### v0.2.4 版本更新摘要
+ * 🧠 **万象拼音 / 雾凇拼音 Octagram 语言模型完整支持**：
+   - **自动扫描与识别**：后端底层自动扫描 `%APPDATA%\Rime` 目录下所有 `*.gram` 语言模型文件（如万象官方 `wanxiang-lts-zh-hans.gram`），自动提取模型标识与文件大小，并在系统仪表盘以专属诊断卡片直观呈现；
+   - **零破坏补丁自动挂载**：遵循 Rime 原生规范，开启时结构化写入 `grammar/language`、`grammar/collocation_max_length`、`grammar/collocation_min_length` 及 `translator/contextual_suggestions: false` 补丁，关闭时安全卸载，彻底打通万象方案的长句预测能力；
+   - **科学调校搭配长度**：根据万象官方推荐调优基准，将搭配最大长度滑块科学收拢至 `2~8` 范围并明确标注 **`推荐 5~6 词 (万象官方基准)`**，在获得极佳整句命中率的同时彻底规避长句输入卡顿掉帧。
 ### v0.2.3 版本更新摘要
  * 🐞 **彻底解决 Caps Lock 锁定后触发输入法及退格卡死 Bug (Issue #2)**：
    - **补全 Rime 切换键定义**：修复了在生成 `default.custom.yaml` 的 `ascii_composer/switch_key` 块时缺失 `Caps_Lock` 定义的缺陷，防止整块字典覆盖导致小狼毫 Caps Lock 绑定置空；

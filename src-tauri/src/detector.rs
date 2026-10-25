@@ -4,6 +4,14 @@ use winreg::enums::*;
 use winreg::RegKey;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GrammarModelItem {
+    pub name: String,
+    pub filename: String,
+    pub size_bytes: u64,
+    pub size_formatted: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EnvironmentStatus {
     pub weasel_installed: bool,
     pub weasel_version: String,
@@ -17,6 +25,7 @@ pub struct EnvironmentStatus {
     pub total_phrases_count: usize,
     pub recommended_phrase_file: String,
     pub is_double_pinyin: bool,
+    pub available_grammar_models: Vec<GrammarModelItem>,
 }
 
 pub fn detect_weasel_paths() -> (Option<String>, Option<String>, Option<String>) {
@@ -285,6 +294,8 @@ pub fn inspect_environment() -> EnvironmentStatus {
         crate::phrases::count_phrase_file_lines(&user_path.join(fallback_file))
     };
 
+    let available_grammar_models = scan_grammar_models(&user_path);
+
     EnvironmentStatus {
         weasel_installed,
         weasel_version,
@@ -298,5 +309,57 @@ pub fn inspect_environment() -> EnvironmentStatus {
         total_phrases_count,
         recommended_phrase_file,
         is_double_pinyin,
+        available_grammar_models,
     }
 }
+
+pub fn scan_grammar_models(user_path: &Path) -> Vec<GrammarModelItem> {
+    let mut models = Vec::new();
+    if !user_path.exists() {
+        return models;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(user_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    if ext.eq_ignore_ascii_case("gram") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+                            let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                            let size_formatted = if size_bytes >= 1024 * 1024 {
+                                format!("{:.1} MB", size_bytes as f64 / (1024.0 * 1024.0))
+                            } else if size_bytes >= 1024 {
+                                format!("{:.1} KB", size_bytes as f64 / 1024.0)
+                            } else {
+                                format!("{} B", size_bytes)
+                            };
+
+                            models.push(GrammarModelItem {
+                                name: stem.to_string(),
+                                filename,
+                                size_bytes,
+                                size_formatted,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 排序：万象模型排前面，随后按名称字母排序
+    models.sort_by(|a, b| {
+        let a_wx = a.name.contains("wanxiang");
+        let b_wx = b.name.contains("wanxiang");
+        match (a_wx, b_wx) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        }
+    });
+
+    models
+}
+

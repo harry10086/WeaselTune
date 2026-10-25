@@ -234,9 +234,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {env?.total_phrases_count ?? 157} 条短语
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-            已从 <span className="mono" style={{ color: '#fbbf24' }}>custom_phrase.txt</span> 准确识别
+            已从 <span className="mono" style={{ color: '#fbbf24' }}>{env?.recommended_phrase_file || 'custom_phrase.txt'}</span> 准确识别
           </div>
         </div>
+
+        {/* 本地语言模型诊断卡片 */}
+        {env?.available_grammar_models && env.available_grammar_models.length > 0 && (
+          <div
+            className="glass-panel glow-card"
+            style={{ padding: '20px', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-dim)', fontSize: '13px', fontWeight: 600 }}>
+                <Cpu size={18} color="#0284c7" />
+                <span>Octagram 语言模型</span>
+              </div>
+              <span style={{ color: '#22c55e', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <CheckCircle2 size={15} /> 已就绪 ({env.available_grammar_models.length})
+              </span>
+            </div>
+            <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-main)', wordBreak: 'break-all' }}>
+              {env.available_grammar_models[0].filename}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+              文件大小: {env.available_grammar_models[0].size_formatted} · 整句预测加权
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 快捷配置引导入口 */}

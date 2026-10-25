@@ -195,6 +195,11 @@ pub struct RimeIceToggles {
     pub super_tips: bool,        // 超级提示模块 (万象)
     pub charset_filter: bool,    // 字符集通规/全集过滤 (万象)
     pub abbrev: bool,            // 公共简码模式 (万象)
+    // Octagram 上下文语言模型 (万象拼音/雾凇/薄荷)
+    pub enable_grammar: bool,
+    pub grammar_model: String,
+    pub grammar_collocation_max_length: u32,
+    pub grammar_collocation_min_length: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -240,6 +245,10 @@ impl Default for RimeIceToggles {
             super_tips: false,
             charset_filter: true,
             abbrev: true,
+            enable_grammar: false,
+            grammar_model: String::new(),
+            grammar_collocation_max_length: 6,
+            grammar_collocation_min_length: 2,
         }
     }
 }
@@ -3117,6 +3126,27 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
                             }
                         }
 
+                        // Octagram 语言模型探测
+                        if let Some(lang) = patch.get("grammar/language").and_then(|v| v.as_str())
+                            .or_else(|| patch.get("grammar").and_then(|g| g.get("language")).and_then(|v| v.as_str()))
+                        {
+                            let trimmed = lang.trim();
+                            if !trimmed.is_empty() && trimmed != "~" && trimmed != "null" {
+                                rime_ice_toggles.enable_grammar = true;
+                                rime_ice_toggles.grammar_model = trimmed.to_string();
+                            }
+                        }
+                        if let Some(max_l) = patch.get("grammar/collocation_max_length").and_then(|v| v.as_u64())
+                            .or_else(|| patch.get("grammar").and_then(|g| g.get("collocation_max_length")).and_then(|v| v.as_u64()))
+                        {
+                            rime_ice_toggles.grammar_collocation_max_length = max_l as u32;
+                        }
+                        if let Some(min_l) = patch.get("grammar/collocation_min_length").and_then(|v| v.as_u64())
+                            .or_else(|| patch.get("grammar").and_then(|g| g.get("collocation_min_length")).and_then(|v| v.as_u64()))
+                        {
+                            rime_ice_toggles.grammar_collocation_min_length = min_l as u32;
+                        }
+
                         // 模糊音探测
                         if let Some(algebra) = patch.get("speller/algebra").or_else(|| patch.get("speller/algebra/+")) {
                             let text = serde_yaml::to_string(algebra).unwrap_or_default();
@@ -3178,6 +3208,14 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
 
     if !detected_page_keys.is_empty() {
         key_bindings.page_up_down_keys = detected_page_keys;
+    }
+
+    // 若未显式配置语言模型名称但目录下检测到了 .gram 模型，预填默认模型
+    if rime_ice_toggles.grammar_model.is_empty() {
+        let scanned_models = crate::detector::scan_grammar_models(&u_path);
+        if let Some(first) = scanned_models.first() {
+            rime_ice_toggles.grammar_model = first.name.clone();
+        }
     }
 
     let dict_files = scan_installed_dicts(user_dir);
@@ -3571,7 +3609,14 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             rime_ice_yaml.push_str("  \"translator/dictionary\": rime_ice.extended\n");
         } else {
             rime_ice_yaml.push_str("\n  # 词典挂载列表定制（默认核心词库）\n");
-            rime_ice_yaml.push_str("  \"translator/dictionary\": rime_ice\n");
+        }
+
+        if config.rime_ice_toggles.enable_grammar && !config.rime_ice_toggles.grammar_model.trim().is_empty() {
+            let model = config.rime_ice_toggles.grammar_model.trim();
+            rime_ice_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+            rime_ice_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", model));
+            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", config.rime_ice_toggles.grammar_collocation_max_length));
+            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", config.rime_ice_toggles.grammar_collocation_min_length));
         }
 
         let _ = fs::write(u_path.join("rime_ice.custom.yaml"), &rime_ice_yaml);
@@ -3712,6 +3757,29 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
 
             wx_yaml.push_str(&fuzzy_yaml_block);
             wx_yaml.push_str(&page_keys_yaml_block);
+
+            // 万象拼音 Octagram 语言模型补丁
+            if config.rime_ice_toggles.enable_grammar && !config.rime_ice_toggles.grammar_model.trim().is_empty() {
+                let model = config.rime_ice_toggles.grammar_model.trim();
+                let max_len = if config.rime_ice_toggles.grammar_collocation_max_length > 0 {
+                    config.rime_ice_toggles.grammar_collocation_max_length
+                } else {
+                    6
+                };
+                let min_len = if config.rime_ice_toggles.grammar_collocation_min_length > 0 {
+                    config.rime_ice_toggles.grammar_collocation_min_length
+                } else {
+                    2
+                };
+                wx_yaml.push_str("  # Octagram 上下文语言模型补丁\n");
+                wx_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", model));
+                wx_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
+                wx_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
+                wx_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            } else {
+                wx_yaml.push_str("  # 禁用 Octagram 语言模型\n");
+                wx_yaml.push_str("  \"grammar/language\": ~\n");
+            }
 
             let _ = fs::write(u_path.join(format!("{}.custom.yaml", wx_id)), &wx_yaml);
         }
