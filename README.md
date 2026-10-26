@@ -1,5 +1,7 @@
 # WeaselTune (小狼毫输入法配置中心)
 
+## 升级到全平台支持 RimeTune (中州韵输入法配置中心)：[https://github.com/harry10086/RimeTune](https://github.com/harry10086/RimeTune)
+
 WeaselTune 是一款专为 **小狼毫（Weasel）输入法** 量身定制的现代图形化配置与管理工具。
 
 基于 **Tauri 2.x + Rust + React + TypeScript** 构建，具备极小体积、极速启动、原生底层支持与高保真现代化视觉体验。
