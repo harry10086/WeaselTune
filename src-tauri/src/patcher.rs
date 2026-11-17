@@ -25,6 +25,32 @@ pub fn validate_yaml(content: &str, file_name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 针对历史或外部补丁中的重复键（duplicate keys）进行安全平滑自愈，避免反序列化直接抛错
+pub fn clean_duplicate_yaml_keys(raw: &str) -> String {
+    let mut lines_rev: Vec<&str> = raw.lines().collect();
+    lines_rev.reverse();
+    let mut seen_keys = std::collections::HashSet::new();
+    let mut result_lines = Vec::new();
+
+    for line in lines_rev {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('#') && trimmed.contains(':') {
+            if let Some(colon_pos) = trimmed.find(':') {
+                let key_part = trimmed[..colon_pos].trim();
+                let indent = line.len() - line.trim_start().len();
+                let scoped_key = format!("{}::{}", indent, key_part);
+                if seen_keys.contains(&scoped_key) {
+                    continue;
+                }
+                seen_keys.insert(scoped_key);
+            }
+        }
+        result_lines.push(line);
+    }
+    result_lines.reverse();
+    result_lines.join("\n")
+}
+
 /// 内置的打字统计 Lua 采集器源码（extras/input_stats.lua）
 pub const INPUT_STATS_LUA_CONTENT: &str = include_str!("../../extras/input_stats.lua");
 
@@ -1281,8 +1307,8 @@ pub fn detect_schema_features(user_dir: &str, schema_id: &str) -> Vec<SchemeFeat
         features.push(SchemeFeatureItem {
             trigger: "v + 字母 / 编码".to_string(),
             name: "全能符号与 Emoji 表情引导".to_string(),
-            description: "输入字母 v 作为引导前缀，可快速呼出分类符号与丰富 Emoji 表情包，无需来回切换输入法状态。".to_string(),
-            example: "输入 vbq ➔ 😄 🐱 🎉；输入 vfh ➔ ✦ ★ ☞；输入 vsx ➔ ± × ÷ √；输入 v1~v9 ➔ 分类符号库".to_string(),
+            description: "输入字母 v 作为引导前缀，可快速呼出分类符号与丰富 Emoji 表情包。打字输入 vhelp 或 vlist 可在候选框直接呼出全量 70+ 类符号索引目录。".to_string(),
+            example: "输入 vhelp ➔ 查看全量70+类索引；vbq ➔ 😄 🐱；vfh ➔ ✦ ★；vsx ➔ ± ×；vjt ➔ ➔ ⇒；v1~v9 ➔ 分类符号".to_string(),
             category: "symbols".to_string(),
         });
     } else if is_mint || content.contains("symbols.yaml") {
@@ -2385,19 +2411,35 @@ pub fn detect_switch_reset(val: &serde_yaml::Value, switch_name: &str) -> Option
 /// 解析指定方案 schema 中的 switches 列表，找到与目标开关名称匹配的真实数字索引
 pub fn resolve_switch_index_for_schema(user_dir: &str, schema_id: &str, switch_name: &str) -> Option<usize> {
     let u_path = Path::new(user_dir);
-    let mut schema_file = u_path.join(format!("{}.schema.yaml", schema_id));
-    if !schema_file.exists() {
-        for scheme_subdir in &["scheme/rime-frost-master", "scheme/oh-my-rime-main", "scheme/rime-wanxiang-base"] {
-            let p = Path::new(scheme_subdir).join(format!("{}.schema.yaml", schema_id));
-            if p.exists() {
-                schema_file = p;
-                break;
-            }
+    let mut candidate_paths = vec![
+        u_path.join(format!("{}.schema.yaml", schema_id)),
+        u_path.join("build").join(format!("{}.schema.yaml", schema_id)),
+        u_path.join("custom").join(format!("{}.schema.yaml", schema_id)),
+    ];
+
+    let (detected_root, _, _) = crate::detector::detect_weasel_paths();
+    if let Some(ref wr) = detected_root {
+        candidate_paths.push(Path::new(wr).join("data").join(format!("{}.schema.yaml", schema_id)));
+    }
+    for scheme_subdir in &[
+        "scheme/rime-frost-master",
+        "scheme/oh-my-rime-main",
+        "scheme/rime-wanxiang-base",
+        "scheme/rime-wanxiang-base/custom",
+    ] {
+        candidate_paths.push(Path::new(scheme_subdir).join(format!("{}.schema.yaml", schema_id)));
+    }
+
+    let mut schema_file: Option<PathBuf> = None;
+    for p in candidate_paths {
+        if p.exists() {
+            schema_file = Some(p);
+            break;
         }
     }
 
-    if schema_file.exists() {
-        if let Ok(c) = fs::read_to_string(&schema_file) {
+    if let Some(ref sf) = schema_file {
+        if let Ok(c) = fs::read_to_string(sf) {
             if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&c) {
                 if let Some(switches) = val.get("switches").and_then(|s| s.as_sequence()) {
                     for (idx, item) in switches.iter().enumerate() {
@@ -2405,10 +2447,21 @@ pub fn resolve_switch_index_for_schema(user_dir: &str, schema_id: &str, switch_n
                             if name == switch_name {
                                 return Some(idx);
                             }
-                            if switch_name == "traditionalization" && (name == "transcription" || name == "traditionalize") {
+                            if switch_name == "traditionalization"
+                                && (name == "transcription"
+                                    || name == "traditionalize"
+                                    || name == "s2t"
+                                    || name == "zh_simp"
+                                    || name == "simplification")
+                            {
                                 return Some(idx);
                             }
                             if switch_name == "emoji" && (name == "emoji_suggestion") {
+                                return Some(idx);
+                            }
+                            if (switch_name == "chinese_english" || switch_name == "english_chinese")
+                                && (name == "english_chinese" || name == "chinese_english")
+                            {
                                 return Some(idx);
                             }
                             if switch_name == "search_single_char" && (name == "char_priority") {
@@ -2421,13 +2474,22 @@ pub fn resolve_switch_index_for_schema(user_dir: &str, schema_id: &str, switch_n
                                     if opt_str == switch_name {
                                         return Some(idx);
                                     }
-                                    if switch_name == "traditionalization" && (opt_str == "s2t" || opt_str == "s2s") {
+                                    if switch_name == "traditionalization"
+                                        && (opt_str == "s2t"
+                                            || opt_str == "s2s"
+                                            || opt_str == "zh_trad"
+                                            || opt_str == "zh_simp")
+                                    {
                                         return Some(idx);
                                     }
                                     if switch_name == "tone_display" && opt_str == "tone_display" {
                                         return Some(idx);
                                     }
-                                    if (switch_name == "tone_hint" || switch_name == "spelling_hints") && (opt_str == "tone_hint" || opt_str == "comment_off") {
+                                    if (switch_name == "tone_hint" || switch_name == "spelling_hints")
+                                        && (opt_str == "tone_hint"
+                                            || opt_str == "comment_off"
+                                            || opt_str == "toneless_hint")
+                                    {
                                         return Some(idx);
                                     }
                                 }
@@ -2468,18 +2530,44 @@ pub fn resolve_switch_index_for_schema(user_dir: &str, schema_id: &str, switch_n
             "pin_cand" => Some(8),
             _ => None,
         },
-        "wanxiang" | "wanxiang_pinyin" | "wanxiang_t9" | "wanxiang_t9i" | "wanxiang_lite" => match switch_name {
+        "wanxiang_lite" | "wanxiang_pure" => match switch_name {
             "ascii_punct" => Some(1),
             "full_shape" => Some(2),
             "emoji" => Some(3),
-            "chinese_english" => Some(4),
-            "tone_hint" | "spelling_hints" | "comment_off" => Some(6),
-            "tone_display" => Some(3),
-            "traditionalization" | "s2t" => Some(4),
-            "abbrev" => Some(5),
-            "super_tips" => Some(7),
-            "charset_filter" => Some(8),
+            "chinese_english" | "english_chinese" => Some(4),
+            "traditionalization" | "s2t" => Some(6),
+            "abbrev" => Some(7),
+            "tone_hint" | "spelling_hints" | "toneless_hint" => Some(8),
             "search_single_char" | "char_priority" => Some(9),
+            _ => None,
+        },
+        "wanxiang_t9" | "wanxiang_t9i" => match switch_name {
+            "ascii_punct" => Some(1),
+            "full_shape" => Some(2),
+            "emoji" => Some(3),
+            "chinese_english" | "english_chinese" => Some(4),
+            "charset_filter" => Some(5),
+            "context_reorder" => Some(6),
+            "tone_display" => Some(7),
+            "traditionalization" | "s2t" => Some(8),
+            "tone_hint" | "spelling_hints" | "comment_off" => Some(9),
+            "super_tips" => Some(10),
+            "search_single_char" | "char_priority" => Some(11),
+            _ => None,
+        },
+        s if s.starts_with("wanxiang") => match switch_name {
+            "ascii_punct" => Some(1),
+            "full_shape" => Some(2),
+            "emoji" => Some(3),
+            "chinese_english" | "english_chinese" => Some(4),
+            "context_reorder" => Some(5),
+            "tone_display" => Some(6),
+            "traditionalization" | "s2t" => Some(7),
+            "abbrev" => Some(8),
+            "tone_hint" | "spelling_hints" | "comment_off" => Some(9),
+            "super_tips" => Some(10),
+            "charset_filter" => Some(11),
+            "search_single_char" | "char_priority" => Some(12),
             _ => None,
         },
         _ => None,
@@ -2500,12 +2588,29 @@ pub fn detect_schema_switch_state(
             let key = format!("switches/@{}/reset", idx);
             if let Some(p) = val.get("patch").or(Some(val)) {
                 if let Some(v) = p.get(&key) {
-                    if let Some(u) = v.as_u64() {
-                        return Some(u != 0);
+                    let num_val = if let Some(u) = v.as_u64() {
+                        Some(u)
                     } else if let Some(i) = v.as_i64() {
-                        return Some(i != 0);
+                        Some(i as u64)
                     } else if let Some(b) = v.as_bool() {
-                        return Some(b);
+                        Some(if b { 1 } else { 0 })
+                    } else {
+                        None
+                    };
+
+                    if let Some(u) = num_val {
+                        if schema_id.starts_with("wanxiang") {
+                            if switch_names.contains(&"tone_display") {
+                                return Some(u == 1);
+                            }
+                            if switch_names.contains(&"traditionalization") || switch_names.contains(&"s2t") {
+                                return Some(u == 1);
+                            }
+                            if switch_names.contains(&"tone_hint") || switch_names.contains(&"spelling_hints") {
+                                return Some(u == 1 || u == 2);
+                            }
+                        }
+                        return Some(u != 0);
                     }
                 }
             }
@@ -3100,16 +3205,18 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
     }
 
     // 2.5 探测活跃及主流方案（rime_ice, rime_frost, rime_mint, wanxiang 等）的基础 switches 和用户 patch 补丁
+    // 优先加载兜底基础方案，最后加载用户当前启用的主方案，确保用户当前方案具备最高覆盖优先级
     let mut candidate_schema_ids = Vec::new();
-    for s in &schemas {
-        if s.enabled && !candidate_schema_ids.contains(&s.id) {
-            candidate_schema_ids.push(s.id.clone());
-        }
-    }
     for default_id in ["rime_ice", "rime_frost", "rime_mint", "wanxiang"] {
         let s_id = default_id.to_string();
         if !candidate_schema_ids.contains(&s_id) {
             candidate_schema_ids.push(s_id);
+        }
+    }
+    for s in &schemas {
+        if s.enabled {
+            candidate_schema_ids.retain(|id| id != &s.id);
+            candidate_schema_ids.push(s.id.clone());
         }
     }
 
@@ -3160,7 +3267,14 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
         let custom_path = u_path.join(format!("{}.custom.yaml", sid));
         if custom_path.exists() {
             if let Ok(c) = fs::read_to_string(&custom_path) {
-                if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&c) {
+                let parsed_val = match serde_yaml::from_str::<serde_yaml::Value>(&c) {
+                    Ok(val) => Some(val),
+                    Err(_) => {
+                        let cleaned = clean_duplicate_yaml_keys(&c);
+                        serde_yaml::from_str::<serde_yaml::Value>(&cleaned).ok()
+                    }
+                };
+                if let Some(val) = parsed_val {
                     if let Some(b) = detect_schema_switch_state(&val, user_dir, sid, &["traditionalization", "transcription", "s2t"]) {
                         rime_ice_toggles.traditionalization = b;
                     }
@@ -3601,13 +3715,14 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
         ""
     };
 
-    // 4. 针对各大拼音方案分别生成专属定制补丁
-    let append_switch_patch = |yaml: &mut String, schema_id: &str, switch_name: &str, val: bool| {
-        let num_val = if val { 1 } else { 0 };
-        if let Some(idx) = resolve_switch_index_for_schema(user_dir, schema_id, switch_name) {
-            yaml.push_str(&format!("  \"switches/@{}/reset\": {}\n", idx, num_val));
+    // 4. 针对各大拼音方案分别生成专属定制补丁（基于真实的 schema switch 索引生成并严格排重，杜绝 YAML 重复键）
+    let append_switch_resets = |yaml: &mut String, resets: &std::collections::BTreeMap<usize, u64>| {
+        if !resets.is_empty() {
+            yaml.push_str("  # 原生状态重置补丁 (switches)\n");
+            for (idx, num_val) in resets {
+                yaml.push_str(&format!("  \"switches/@{}/reset\": {}\n", idx, num_val));
+            }
         }
-        yaml.push_str(&format!("  \"switches/@name/{}/reset\": {}\n", switch_name, num_val));
     };
 
     // A. 雾凇拼音 (rime_ice)
@@ -3618,12 +3733,28 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
         rime_ice_yaml.push_str("# WeaselTune 生成的雾凇拼音专属功能补丁\n");
         rime_ice_yaml.push_str("patch:\n");
         rime_ice_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
-        rime_ice_yaml.push_str("  # 常用输入状态重置补丁 (switches)\n");
-        append_switch_patch(&mut rime_ice_yaml, "rime_ice", "traditionalization", config.rime_ice_toggles.traditionalization);
-        append_switch_patch(&mut rime_ice_yaml, "rime_ice", "full_shape", config.rime_ice_toggles.full_shape);
-        append_switch_patch(&mut rime_ice_yaml, "rime_ice", "ascii_punct", config.rime_ice_toggles.ascii_punct);
-        append_switch_patch(&mut rime_ice_yaml, "rime_ice", "search_single_char", config.rime_ice_toggles.search_single_char);
-        append_switch_patch(&mut rime_ice_yaml, "rime_ice", "emoji", config.rime_ice_toggles.emoji);
+
+        let mut resets = std::collections::BTreeMap::new();
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "traditionalization") {
+            resets.insert(i, if config.rime_ice_toggles.traditionalization { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "full_shape") {
+            resets.insert(i, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "ascii_punct") {
+            resets.insert(i, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "search_single_char") {
+            resets.insert(i, if config.rime_ice_toggles.search_single_char { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "emoji") {
+            resets.insert(i, if config.rime_ice_toggles.emoji { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "dict_comment") {
+            let dc_val = if config.rime_ice_toggles.spelling_hints { 0 } else if config.rime_ice_toggles.dict_comment_chinese_to_english { 1 } else { 0 };
+            resets.insert(i, dc_val);
+        }
+        append_switch_resets(&mut rime_ice_yaml, &resets);
 
         // 词典释义滤镜与候选词拼音互斥处理
         if config.rime_ice_toggles.spelling_hints {
@@ -3631,7 +3762,6 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             rime_ice_yaml.push_str("  \"translator/always_show_comments\": true\n");
             rime_ice_yaml.push_str("  \"translator/keep_comments\": true\n"); // 关键：允许 corrector.lua 保留拼音
             // 候选词拼音开启时自动互斥关闭词典释义
-            append_switch_patch(&mut rime_ice_yaml, "rime_ice", "dict_comment", false);
             rime_ice_yaml.push_str("  # 候选词拼音开启时自动互斥关闭词典释义\n");
             rime_ice_yaml.push_str("  dict_comment_filter:\n");
             rime_ice_yaml.push_str("    enable_chinese_to_english: false\n");
@@ -3642,7 +3772,6 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             rime_ice_yaml.push_str("  \"translator/spelling_hints\": 0\n");
             rime_ice_yaml.push_str("  \"translator/always_show_comments\": false\n");
             rime_ice_yaml.push_str("  \"translator/keep_comments\": false\n");
-            append_switch_patch(&mut rime_ice_yaml, "rime_ice", "dict_comment", config.rime_ice_toggles.dict_comment_chinese_to_english);
             // 词典释义滤镜正常输出
             rime_ice_yaml.push_str("  # Lua 词典释义滤镜\n");
             rime_ice_yaml.push_str("  dict_comment_filter:\n");
@@ -3731,6 +3860,11 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             rime_ice_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
             rime_ice_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", config.rime_ice_toggles.grammar_collocation_max_length));
             rime_ice_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", config.rime_ice_toggles.grammar_collocation_min_length));
+            rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+        } else {
+            rime_ice_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
+            rime_ice_yaml.push_str("  \"grammar/language\": ~\n");
+            rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
         }
 
         let _ = validate_yaml(&rime_ice_yaml, "rime_ice.custom.yaml");
@@ -3752,18 +3886,34 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             frost_yaml.push_str("# WeaselTune 生成的白霜拼音专属定制补丁\n");
             frost_yaml.push_str("patch:\n");
             frost_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
-            frost_yaml.push_str("  # 原生状态重置补丁 (switches)\n");
-            append_switch_patch(&mut frost_yaml, frost_id, "traditionalization", config.rime_ice_toggles.traditionalization);
-            append_switch_patch(&mut frost_yaml, frost_id, "full_shape", config.rime_ice_toggles.full_shape);
-            append_switch_patch(&mut frost_yaml, frost_id, "ascii_punct", config.rime_ice_toggles.ascii_punct);
-            append_switch_patch(&mut frost_yaml, frost_id, "emoji", config.rime_ice_toggles.emoji); // 修复：补充白霜 emoji 补丁
 
-            // 候选词旁显示拼音与中英互译互斥处理
+            let mut resets = std::collections::BTreeMap::new();
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "traditionalization") {
+                resets.insert(i, if config.rime_ice_toggles.traditionalization { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "full_shape") {
+                resets.insert(i, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "ascii_punct") {
+                resets.insert(i, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "emoji") {
+                resets.insert(i, if config.rime_ice_toggles.emoji { 1 } else { 0 });
+            }
             let ce_enabled = if config.rime_ice_toggles.spelling_hints { false } else { config.rime_ice_toggles.chinese_english };
-            append_switch_patch(&mut frost_yaml, frost_id, "chinese_english", ce_enabled);
-            append_switch_patch(&mut frost_yaml, frost_id, "mars", config.rime_ice_toggles.mars);
-            append_switch_patch(&mut frost_yaml, frost_id, "chaifen", config.rime_ice_toggles.chaifen);
-            append_switch_patch(&mut frost_yaml, frost_id, "pin_cand", config.rime_ice_toggles.pin_cand);
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "chinese_english") {
+                resets.insert(i, if ce_enabled { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "mars") {
+                resets.insert(i, if config.rime_ice_toggles.mars { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "chaifen") {
+                resets.insert(i, if config.rime_ice_toggles.chaifen { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, frost_id, "pin_cand") {
+                resets.insert(i, if config.rime_ice_toggles.pin_cand { 1 } else { 0 });
+            }
+            append_switch_resets(&mut frost_yaml, &resets);
 
             if config.rime_ice_toggles.spelling_hints {
                 frost_yaml.push_str("  \"translator/spelling_hints\": 8\n");
@@ -3779,6 +3929,34 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             frost_yaml.push_str(&page_keys_yaml_block);
             frost_yaml.push_str(stats_filter_block);
 
+            // 白霜拼音 Octagram 上下文语言模型补丁
+            if config.rime_ice_toggles.enable_grammar {
+                let model = if !config.rime_ice_toggles.grammar_model.trim().is_empty() {
+                    config.rime_ice_toggles.grammar_model.trim()
+                } else {
+                    "zh-hans-t-essay-bgw"
+                };
+                let max_len = if config.rime_ice_toggles.grammar_collocation_max_length > 0 {
+                    config.rime_ice_toggles.grammar_collocation_max_length
+                } else {
+                    6
+                };
+                let min_len = if config.rime_ice_toggles.grammar_collocation_min_length > 0 {
+                    config.rime_ice_toggles.grammar_collocation_min_length
+                } else {
+                    2
+                };
+                frost_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+                frost_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
+                frost_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
+                frost_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
+                frost_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+            } else {
+                frost_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
+                frost_yaml.push_str("  \"grammar/language\": ~\n");
+                frost_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            }
+
             let _ = validate_yaml(&frost_yaml, &format!("{}.custom.yaml", frost_id));
             let _ = fs::write(u_path.join(format!("{}.custom.yaml", frost_id)), &frost_yaml);
         }
@@ -3792,13 +3970,25 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             mint_yaml.push_str("# WeaselTune 生成的薄荷拼音专属定制补丁\n");
             mint_yaml.push_str("patch:\n");
             mint_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
-            mint_yaml.push_str("  # 原生状态重置补丁 (switches)\n");
-            append_switch_patch(&mut mint_yaml, mint_id, "transcription", config.rime_ice_toggles.traditionalization);
-            append_switch_patch(&mut mint_yaml, mint_id, "emoji_suggestion", config.rime_ice_toggles.emoji);
+
+            let mut resets = std::collections::BTreeMap::new();
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, mint_id, "transcription") {
+                resets.insert(i, if config.rime_ice_toggles.traditionalization { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, mint_id, "emoji_suggestion") {
+                resets.insert(i, if config.rime_ice_toggles.emoji { 1 } else { 0 });
+            }
             let mint_tone_on = config.rime_ice_toggles.spelling_hints || config.rime_ice_toggles.tone_display;
-            append_switch_patch(&mut mint_yaml, mint_id, "tone_display", mint_tone_on);
-            append_switch_patch(&mut mint_yaml, mint_id, "full_shape", config.rime_ice_toggles.full_shape);
-            append_switch_patch(&mut mint_yaml, mint_id, "ascii_punct", config.rime_ice_toggles.ascii_punct);
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, mint_id, "tone_display") {
+                resets.insert(i, if mint_tone_on { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, mint_id, "full_shape") {
+                resets.insert(i, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
+            }
+            if let Some(i) = resolve_switch_index_for_schema(user_dir, mint_id, "ascii_punct") {
+                resets.insert(i, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
+            }
+            append_switch_resets(&mut mint_yaml, &resets);
 
             if mint_tone_on {
                 mint_yaml.push_str("  \"translator/spelling_hints\": 8\n");
@@ -3825,13 +4015,41 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             mint_yaml.push_str(&page_keys_yaml_block);
             mint_yaml.push_str(stats_filter_block);
 
+            // 薄荷拼音 Octagram 上下文语言模型补丁
+            if config.rime_ice_toggles.enable_grammar {
+                let model = if !config.rime_ice_toggles.grammar_model.trim().is_empty() {
+                    config.rime_ice_toggles.grammar_model.trim()
+                } else {
+                    "zh-hans-t-essay-bgw"
+                };
+                let max_len = if config.rime_ice_toggles.grammar_collocation_max_length > 0 {
+                    config.rime_ice_toggles.grammar_collocation_max_length
+                } else {
+                    6
+                };
+                let min_len = if config.rime_ice_toggles.grammar_collocation_min_length > 0 {
+                    config.rime_ice_toggles.grammar_collocation_min_length
+                } else {
+                    2
+                };
+                mint_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+                mint_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
+                mint_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
+                mint_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
+                mint_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+            } else {
+                mint_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
+                mint_yaml.push_str("  \"grammar/language\": ~\n");
+                mint_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            }
+
             let _ = validate_yaml(&mint_yaml, &format!("{}.custom.yaml", mint_id));
             let _ = fs::write(u_path.join(format!("{}.custom.yaml", mint_id)), &mint_yaml);
         }
     }
 
     // D. 万象拼音 (wanxiang 及变体)
-    for wx_id in &["wanxiang", "wanxiang_pinyin", "wanxiang_t9", "wanxiang_t9i", "wanxiang_lite"] {
+    for wx_id in &["wanxiang", "wanxiang_pinyin", "wanxiang_t9", "wanxiang_t9i", "wanxiang_lite", "wanxiang_pro", "wanxiang_pure"] {
         let wx_schema = u_path.join(format!("{}.schema.yaml", wx_id));
         let wx_custom = u_path.join(format!("{}.custom.yaml", wx_id));
         if wx_schema.exists() || wx_custom.exists() || config.schemas.iter().any(|s| s.id == *wx_id) {
@@ -3839,41 +4057,55 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             wx_yaml.push_str("# WeaselTune 生成的万象拼音专属定制补丁\n");
             wx_yaml.push_str("patch:\n");
             wx_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
-            wx_yaml.push_str("  # 原生状态重置补丁 (switches)\n");
+
+            let mut resets = std::collections::BTreeMap::new();
             // 万象繁简为开关组：s2s=0 (简体), s2t=1 (繁体)
             let s2t_num = if config.rime_ice_toggles.traditionalization { 1 } else { 0 };
             if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "s2t") {
-                wx_yaml.push_str(&format!("  \"switches/@{}/reset\": {}\n", idx, s2t_num));
+                resets.insert(idx, s2t_num);
             }
-            wx_yaml.push_str(&format!("  \"switches/@name/s2t/reset\": {}\n", s2t_num));
 
-            append_switch_patch(&mut wx_yaml, wx_id, "super_tips", config.rime_ice_toggles.super_tips);
-            append_switch_patch(&mut wx_yaml, wx_id, "abbrev", config.rime_ice_toggles.abbrev);
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "super_tips") {
+                resets.insert(idx, if config.rime_ice_toggles.super_tips { 1 } else { 0 });
+            }
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "abbrev") {
+                resets.insert(idx, if config.rime_ice_toggles.abbrev { 1 } else { 0 });
+            }
 
             // 候选词旁显示拼音与中英互译互斥处理
             let ce_enabled = if config.rime_ice_toggles.spelling_hints { false } else { config.rime_ice_toggles.chinese_english };
-            append_switch_patch(&mut wx_yaml, wx_id, "chinese_english", ce_enabled);
-            append_switch_patch(&mut wx_yaml, wx_id, "emoji", config.rime_ice_toggles.emoji);
-            append_switch_patch(&mut wx_yaml, wx_id, "full_shape", config.rime_ice_toggles.full_shape);
-            append_switch_patch(&mut wx_yaml, wx_id, "ascii_punct", config.rime_ice_toggles.ascii_punct);
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "chinese_english") {
+                resets.insert(idx, if ce_enabled { 1 } else { 0 });
+            }
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "emoji") {
+                resets.insert(idx, if config.rime_ice_toggles.emoji { 1 } else { 0 });
+            }
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "full_shape") {
+                resets.insert(idx, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
+            }
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "ascii_punct") {
+                resets.insert(idx, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
+            }
+            // 声调选项组: reset 1 为 tone_display (有声调), reset 2 为 full_pinyin (无声调)
             if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "tone_display") {
-                let td_num = if config.rime_ice_toggles.tone_display { 1 } else { 0 };
-                wx_yaml.push_str(&format!("  \"switches/@{}/reset\": {}\n", idx, td_num));
+                let td_num = if config.rime_ice_toggles.tone_display { 1 } else { 2 };
+                resets.insert(idx, td_num);
             }
 
             if config.rime_ice_toggles.spelling_hints {
                 wx_yaml.push_str("  \"translator/spelling_hints\": 30\n");
                 wx_yaml.push_str("  \"translator/always_show_comments\": true\n");
                 if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "tone_hint") {
-                    wx_yaml.push_str(&format!("  \"switches/@{}/reset\": 1\n", idx));
+                    resets.insert(idx, 1);
                 }
             } else {
                 wx_yaml.push_str("  \"translator/spelling_hints\": 0\n");
                 wx_yaml.push_str("  \"translator/always_show_comments\": false\n");
                 if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "tone_hint") {
-                    wx_yaml.push_str(&format!("  \"switches/@{}/reset\": 0\n", idx));
+                    resets.insert(idx, 0);
                 }
             }
+            append_switch_resets(&mut wx_yaml, &resets);
 
             wx_yaml.push_str(&fuzzy_yaml_block);
             wx_yaml.push_str(&page_keys_yaml_block);
@@ -3892,14 +4124,15 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 } else {
                     2
                 };
-                wx_yaml.push_str("  # Octagram 上下文语言模型补丁\n");
+                wx_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
                 wx_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
                 wx_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
                 wx_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
-                wx_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                wx_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
             } else {
-                wx_yaml.push_str("  # 禁用 Octagram 语言模型\n");
+                wx_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
                 wx_yaml.push_str("  \"grammar/language\": ~\n");
+                wx_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
             }
 
             let _ = validate_yaml(&wx_yaml, &format!("{}.custom.yaml", wx_id));
@@ -3916,7 +4149,7 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
         "rime_frost_double_pinyin_ziguang", "rime_frost_double_pinyin_abc",
         "rime_frost_moqi_single_xh", "rime_frost_t9", "rime_frost_wubi86",
         "rime_mint", "rime_mint_simp", "rime_mint_flypy", "rime_mint_mspy", "mint_pinyin", "mint_pinyin_simp",
-        "wanxiang", "wanxiang_pinyin", "wanxiang_t9", "wanxiang_t9i", "wanxiang_lite",
+        "wanxiang", "wanxiang_pinyin", "wanxiang_t9", "wanxiang_t9i", "wanxiang_lite", "wanxiang_pro", "wanxiang_pure",
     ];
     for s in &config.schemas {
         if s.enabled && !handled_ids.contains(&s.id.as_str()) {
@@ -3926,9 +4159,19 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 other_yaml.push_str(&format!("# WeaselTune 生成的方案定制补丁: {}\n", s.name));
                 other_yaml.push_str("patch:\n");
                 other_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
-                append_switch_patch(&mut other_yaml, &s.id, "traditionalization", config.rime_ice_toggles.traditionalization);
-                append_switch_patch(&mut other_yaml, &s.id, "full_shape", config.rime_ice_toggles.full_shape);
-                append_switch_patch(&mut other_yaml, &s.id, "ascii_punct", config.rime_ice_toggles.ascii_punct);
+
+                let mut resets = std::collections::BTreeMap::new();
+                if let Some(i) = resolve_switch_index_for_schema(user_dir, &s.id, "traditionalization") {
+                    resets.insert(i, if config.rime_ice_toggles.traditionalization { 1 } else { 0 });
+                }
+                if let Some(i) = resolve_switch_index_for_schema(user_dir, &s.id, "full_shape") {
+                    resets.insert(i, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
+                }
+                if let Some(i) = resolve_switch_index_for_schema(user_dir, &s.id, "ascii_punct") {
+                    resets.insert(i, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
+                }
+                append_switch_resets(&mut other_yaml, &resets);
+
                 other_yaml.push_str(&fuzzy_yaml_block);
                 other_yaml.push_str(&page_keys_yaml_block);
                 other_yaml.push_str(stats_filter_block);

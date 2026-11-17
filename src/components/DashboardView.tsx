@@ -1,6 +1,7 @@
 import React from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { EnvironmentStatus, DeployResult } from '../types';
-import { CheckCircle2, AlertTriangle, RefreshCw, Folder, Cpu, Sparkles, BookOpen } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, RefreshCw, Folder, FolderOpen, Cpu, Sparkles, BookOpen } from 'lucide-react';
 
 interface DashboardViewProps {
   env: EnvironmentStatus | null;
@@ -193,8 +194,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {env?.patch_files_found.length || 0} 个有效补丁
             </span>
           </div>
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)', wordBreak: 'break-all' }} className="mono">
-            {env?.rime_user_dir}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', wordBreak: 'break-all' }} className="mono">
+              {env?.rime_user_dir}
+            </div>
+            {env?.rime_user_dir && (
+              <button
+                type="button"
+                onClick={() => invoke('open_in_explorer', { path: env.rime_user_dir })}
+                style={{
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  padding: '4px 9px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                title="在资源管理器中打开 Rime 用户目录"
+              >
+                <FolderOpen size={13} />
+                <span>打开文件夹</span>
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
             {env?.patch_files_found.map((p) => (

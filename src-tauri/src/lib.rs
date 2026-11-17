@@ -689,4 +689,56 @@ author: "Tester"
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_wanxiang_and_grammar_switch_saving_issue_3() {
+        use patcher::{clean_duplicate_yaml_keys, resolve_switch_index_for_schema};
+
+        // 1. 测试 duplicate keys 平滑自愈
+        let duplicate_yaml = "patch:\n  \"switches/@3/reset\": 0\n  \"switches/@3/reset\": 1\n";
+        let cleaned = clean_duplicate_yaml_keys(duplicate_yaml);
+        assert!(cleaned.contains("\"switches/@3/reset\": 1"));
+        assert!(!cleaned.contains("\"switches/@3/reset\": 0"));
+
+        // 2. 测试 wanxiang_lite 与 wanxiang 的开关索引精准区分 (Issue #3)
+        let idx_lite_s2t = resolve_switch_index_for_schema("C:\\fake_dir", "wanxiang_lite", "traditionalization");
+        let idx_wx_s2t = resolve_switch_index_for_schema("C:\\fake_dir", "wanxiang", "traditionalization");
+        assert_eq!(idx_lite_s2t, Some(6), "wanxiang_lite 的繁简开关索引必须为 6");
+        assert_eq!(idx_wx_s2t, Some(7), "wanxiang 全量版的繁简开关索引必须为 7");
+
+        // 3. 测试白霜拼音、薄荷拼音、万象拼音保存 Octagram 语言模型与上下文建议参数
+        let temp_dir = std::env::temp_dir().join("weaseltune_test_issue_3");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let u_str = temp_dir.to_str().unwrap();
+
+        std::fs::write(temp_dir.join("rime_frost.schema.yaml"), "schema:\n  schema_id: rime_frost\n").unwrap();
+        std::fs::write(temp_dir.join("rime_mint.schema.yaml"), "schema:\n  schema_id: rime_mint\n").unwrap();
+        std::fs::write(temp_dir.join("wanxiang.schema.yaml"), "schema:\n  schema_id: wanxiang\n").unwrap();
+
+        let mut config = patcher::load_unified_config(u_str);
+        config.rime_ice_toggles.enable_grammar = true;
+        config.rime_ice_toggles.grammar_model = "wanxiang-lts-zh-hans.gram".to_string();
+        config.rime_ice_toggles.traditionalization = false;
+
+        let save_res = patcher::save_unified_config(u_str, config);
+        assert!(save_res.is_ok(), "保存配置失败: {:?}", save_res.err());
+
+        // 验证白霜拼音补丁
+        let frost_custom = std::fs::read_to_string(temp_dir.join("rime_frost.custom.yaml")).unwrap();
+        assert!(frost_custom.contains("grammar/language"), "白霜拼音必须成功写入语言模型补丁");
+        assert!(frost_custom.contains("\"translator/contextual_suggestions\": true"), "语言模型开启时上下文联想必须为 true");
+
+        // 验证薄荷拼音补丁
+        let mint_custom = std::fs::read_to_string(temp_dir.join("rime_mint.custom.yaml")).unwrap();
+        assert!(mint_custom.contains("grammar/language"), "薄荷拼音必须成功写入语言模型补丁");
+        assert!(mint_custom.contains("\"translator/contextual_suggestions\": true"));
+
+        // 验证万象拼音补丁
+        let wx_custom = std::fs::read_to_string(temp_dir.join("wanxiang.custom.yaml")).unwrap();
+        assert!(wx_custom.contains("grammar/language"), "万象拼音必须成功写入语言模型补丁");
+        assert!(wx_custom.contains("\"translator/contextual_suggestions\": true"), "万象拼音开启模型时上下文建议不能为 false");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

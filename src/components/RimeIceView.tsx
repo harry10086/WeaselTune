@@ -62,10 +62,17 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
     return schemas.filter((s) => s.id !== 'radical_pinyin' && s.id !== 'wanxiang_reverse');
   }, [schemas]);
 
-  const [selectedSchemaId, setSelectedSchemaId] = useState<string>(() => {
+  // 识别当前已启用的主力方案
+  const activePrimarySchemaId = useMemo(() => {
     const firstEnabled = validSchemas.find((s) => s.enabled);
     return firstEnabled ? firstEnabled.id : (validSchemas[0]?.id || 'rime_ice');
-  });
+  }, [validSchemas]);
+
+  // 手册专区当前浏览的方案（独立状态，仅用于手册指令与特性展示，绝不影响下方词库与开关设置）
+  const [manualSchemaId, setManualSchemaId] = useState<string>(() => activePrimarySchemaId);
+
+  // 词库与特性配置关联的方案（默认绑定当前主力方案，并可由用户在词库区独立切换）
+  const [selectedSchemaId, setSelectedSchemaId] = useState<string>(() => activePrimarySchemaId);
 
   useEffect(() => {
     const enabledList = validSchemas.filter((s) => s.enabled);
@@ -170,17 +177,22 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
     }
   };
 
+  // 1. 手册特性加载：仅当 manualSchemaId 或 userDir 变化时拉取，绝不影响词库挂载与开关
   useEffect(() => {
     if (!userDir) return;
     setFeaturesLoading(true);
     invoke<SchemeFeatureItem[]>('get_schema_features', {
       userDir,
-      schemaId: selectedSchemaId,
+      schemaId: manualSchemaId,
     })
       .then((res) => setFeatures(res))
       .catch((err) => console.error('Failed to get schema features:', err))
       .finally(() => setFeaturesLoading(false));
+  }, [userDir, manualSchemaId]);
 
+  // 2. 词库挂载与特性配置：按 selectedSchemaId（绑定当前主力方案）拉取
+  useEffect(() => {
+    if (!userDir) return;
     setMountsLoading(true);
     invoke<SchemaDictMountsInfo>('get_schema_dict_mounts', {
       userDir,
@@ -304,12 +316,12 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                 {(validSchemas.filter((s) => s.enabled).length > 0 ? validSchemas.filter((s) => s.enabled) : validSchemas.slice(0, 3)).map((s) => {
-                  const isCur = s.id === selectedSchemaId;
+                  const isCur = s.id === manualSchemaId;
                   return (
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setSelectedSchemaId(s.id)}
+                      onClick={() => setManualSchemaId(s.id)}
                       style={{
                         padding: '4px 11px',
                         borderRadius: '6px',
@@ -330,17 +342,17 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
 
               {validSchemas.filter((s) => !s.enabled).length > 0 && (
                 <select
-                  value={validSchemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '' : selectedSchemaId}
+                  value={validSchemas.filter((s) => s.enabled).some((s) => s.id === manualSchemaId) ? '' : manualSchemaId}
                   onChange={(e) => {
-                    if (e.target.value) setSelectedSchemaId(e.target.value);
+                    if (e.target.value) setManualSchemaId(e.target.value);
                   }}
                   style={{
                     padding: '4px 10px',
                     borderRadius: '6px',
                     fontSize: '12px',
                     backgroundColor: 'var(--bg-tertiary)',
-                    color: !validSchemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '#38bdf8' : 'var(--text-dim)',
-                    border: !validSchemas.filter((s) => s.enabled).some((s) => s.id === selectedSchemaId) ? '1px solid #38bdf8' : '1px solid var(--border)',
+                    color: !validSchemas.filter((s) => s.enabled).some((s) => s.id === manualSchemaId) ? '#38bdf8' : 'var(--text-dim)',
+                    border: !validSchemas.filter((s) => s.enabled).some((s) => s.id === manualSchemaId) ? '1px solid #38bdf8' : '1px solid var(--border)',
                     cursor: 'pointer',
                     outline: 'none',
                   }}
@@ -444,15 +456,16 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                     borderRadius: '6px',
                     border: '1px solid rgba(148, 163, 184, 0.15)',
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                     justifyContent: 'space-between',
+                    gap: '8px',
                     fontSize: '11px',
                     color: '#94a3b8',
                   }}
                 >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ wordBreak: 'break-word', lineHeight: '1.5', flex: 1 }}>
                     <span style={{ color: '#64748b' }}>效果：</span>{item.example}
-                  </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleCopy(item.example)}
@@ -466,6 +479,7 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                       cursor: 'pointer',
                       fontSize: '11px',
                       flexShrink: 0,
+                      marginTop: '2px',
                     }}
                     title="复制示例"
                   >
@@ -501,33 +515,62 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             )}
           </div>
 
-          {mountsInfo && mountsInfo.primary_dict_path && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="mono" style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-                入口文件: {mountsInfo.primary_dict_file}
-              </span>
-              <button
-                type="button"
-                onClick={() => invoke('open_file_in_editor', { path: mountsInfo.primary_dict_path })}
-                title="在编辑器中直接查看或修改此方案主词库入口文件"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--accent)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                <ExternalLink size={12} /> 打开主词库入口
-              </button>
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {validSchemas.length > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>词库所属方案:</span>
+                <select
+                  value={selectedSchemaId}
+                  onChange={(e) => setSelectedSchemaId(e.target.value)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border)',
+                    outline: 'none',
+                    cursor: 'pointer',
+                  }}
+                  title="切换查看或定制对应方案的专属扩展词典挂载清单"
+                >
+                  {validSchemas.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} {s.id === activePrimarySchemaId ? '(当前主力方案)' : s.enabled ? '(已启用)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {mountsInfo && mountsInfo.primary_dict_path && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="mono" style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                  入口: {mountsInfo.primary_dict_file}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => invoke('open_file_in_editor', { path: mountsInfo.primary_dict_path })}
+                  title="在编辑器中直接查看或修改此方案主词库入口文件"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--accent)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ExternalLink size={12} /> 打开主词库入口
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '18px' }}>
@@ -1380,14 +1423,16 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                 <Languages size={18} />
               </div>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>候选词旁显示拼音 (注音提示)</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>候选词旁显示拼音 (注音提示)</span>
                   <span
                     style={{
                       fontSize: '11px',
                       fontWeight: 700,
                       padding: '2px 7px',
                       borderRadius: '4px',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                       backgroundColor: toggles.spelling_hints ? 'rgba(56, 189, 248, 0.2)' : 'rgba(239, 68, 68, 0.15)',
                       color: toggles.spelling_hints ? '#38bdf8' : '#f87171',
                     }}
@@ -1400,6 +1445,8 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                       fontWeight: 600,
                       padding: '1px 6px',
                       borderRadius: '4px',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                       backgroundColor: 'rgba(251, 191, 36, 0.12)',
                       color: '#fbbf24',
                     }}
@@ -1549,14 +1596,16 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                   <Sparkles size={18} />
                 </div>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>单字 / 词组输入</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>单字 / 词组输入</span>
                     <span
                       style={{
                         fontSize: '11px',
                         fontWeight: 700,
                         padding: '2px 7px',
                         borderRadius: '4px',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
                         backgroundColor: toggles.search_single_char ? 'rgba(251, 191, 36, 0.2)' : 'rgba(56, 189, 248, 0.15)',
                         color: toggles.search_single_char ? '#fbbf24' : '#38bdf8',
                       }}
@@ -1587,14 +1636,16 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                 <Smile size={18} />
               </div>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>Emoji 表情联想</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>Emoji 表情联想</span>
                   <span
                     style={{
                       fontSize: '11px',
                       fontWeight: 700,
                       padding: '2px 7px',
                       borderRadius: '4px',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                       backgroundColor: toggles.emoji ? 'rgba(244, 114, 182, 0.2)' : 'rgba(148, 163, 184, 0.15)',
                       color: toggles.emoji ? '#f472b6' : 'var(--text-dim)',
                     }}

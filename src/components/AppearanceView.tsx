@@ -856,10 +856,11 @@ hilited_candidate_label_color: 0xFFD9F99D`;
                           padding: '7px 10px',
                           borderRadius: '6px',
                           textAlign: 'left',
-                          backgroundColor: isSelected ? 'rgba(56, 189, 248, 0.2)' : 'var(--bg-tertiary)',
-                          border: isSelected ? '1px solid #38bdf8' : '1px solid var(--border)',
-                          color: isSelected ? '#38bdf8' : '#e2e8f0',
+                          backgroundColor: isSelected ? 'var(--accent-glow)' : 'var(--bg-elevated)',
+                          border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
+                          color: isSelected ? 'var(--accent)' : 'var(--text-main)',
                           fontSize: '12px',
+                          fontWeight: isSelected ? 700 : 500,
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
@@ -910,9 +911,9 @@ hilited_candidate_label_color: 0xFFD9F99D`;
                         fontWeight: isCurrent ? 700 : 500,
                         padding: '4px 10px',
                         borderRadius: '6px',
-                        backgroundColor: isCurrent ? 'rgba(56, 189, 248, 0.2)' : 'var(--bg-tertiary)',
-                        color: isCurrent ? '#38bdf8' : '#cbd5e1',
-                        border: isCurrent ? '1px solid #38bdf8' : '1px solid var(--border)',
+                        backgroundColor: isCurrent ? 'var(--accent-glow)' : 'var(--bg-elevated)',
+                        color: isCurrent ? 'var(--accent)' : 'var(--text-main)',
+                        border: isCurrent ? '1px solid var(--accent)' : '1px solid var(--border)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -929,9 +930,9 @@ hilited_candidate_label_color: 0xFFD9F99D`;
           </div>
 
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>候选字号 (font_point)</label>
-              <span style={{ fontSize: '14px', color: '#fbbf24', fontWeight: 700 }}>{styleConfig.font_point} pt</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>候选字号 (font_point)</label>
+              <span style={{ fontSize: '14px', color: '#fbbf24', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{styleConfig.font_point}&nbsp;pt</span>
             </div>
             <input
               type="range"
@@ -945,14 +946,14 @@ hilited_candidate_label_color: 0xFFD9F99D`;
 
           {/* 拼音/释义/注释 (Comment) 字体与字号 */}
           <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>拼音 / 释义字号 (comment_font_point)</span>
-                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>拼音 / 释义字号 (comment_font_point)</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
                   小狼毫原生
                 </span>
               </div>
-              <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 700 }}>{styleConfig.comment_font_point ?? 12} pt</span>
+              <span style={{ fontSize: '14px', color: '#38bdf8', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{styleConfig.comment_font_point ?? 12}&nbsp;pt</span>
             </div>
             <input
               type="range"
@@ -995,14 +996,14 @@ hilited_candidate_label_color: 0xFFD9F99D`;
 
           {/* 序号标签 (Label) 字体与字号 */}
           <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>序号标签字号 (label_font_point)</span>
-                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(52, 211, 153, 0.15)', color: '#34d399', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>序号标签字号 (label_font_point)</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(52, 211, 153, 0.15)', color: '#34d399', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
                   1. 2. 3. 序号
                 </span>
               </div>
-              <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700 }}>{styleConfig.label_font_point ?? 12} pt</span>
+              <span style={{ fontSize: '14px', color: '#34d399', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{styleConfig.label_font_point ?? 12}&nbsp;pt</span>
             </div>
             <input
               type="range"
@@ -1209,14 +1210,16 @@ hilited_candidate_label_color: 0xFFD9F99D`;
           <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>行内预编辑 (inline_preedit)</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>行内预编辑 (inline_preedit)</span>
                   <span
                     style={{
                       fontSize: '11px',
                       padding: '2px 8px',
                       borderRadius: '4px',
                       fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                       backgroundColor: styleConfig.inline_preedit ? 'rgba(56, 189, 248, 0.15)' : 'rgba(251, 191, 36, 0.15)',
                       color: styleConfig.inline_preedit ? '#38bdf8' : '#fbbf24',
                       border: styleConfig.inline_preedit ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(251, 191, 36, 0.3)',

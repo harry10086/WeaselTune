@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import packageJson from '../package.json';
 import {
   EnvironmentStatus,
   UnifiedFullConfig,
@@ -66,12 +67,74 @@ export function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const openRepoUrl = async () => {
+  const [updateInfo, setUpdateInfo] = useState<{
+    status: 'idle' | 'checking' | 'latest' | 'available' | 'error';
+    latestVersion?: string;
+    releaseUrl?: string;
+    errorMessage?: string;
+  }>({ status: 'idle' });
+
+  const openExternalUrl = async (url: string) => {
     try {
       const { openUrl } = await import('@tauri-apps/plugin-opener');
-      await openUrl('https://github.com/harry10086/WeaselTune');
+      await openUrl(url);
     } catch {
-      window.open('https://github.com/harry10086/WeaselTune', '_blank');
+      window.open(url, '_blank');
+    }
+  };
+
+  const checkForUpdates = async () => {
+    setUpdateInfo({ status: 'checking' });
+    try {
+      const resp = await fetch('https://api.github.com/repos/harry10086/WeaselTune/releases/latest', {
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      });
+      if (!resp.ok) {
+        throw new Error(`GitHub HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const latestTag = (data.tag_name || data.name || '').trim();
+      const releaseUrl = data.html_url || 'https://github.com/harry10086/WeaselTune/releases';
+
+      const cleanVer = (v: string) => v.replace(/^v/, '').trim();
+      const cur = cleanVer(packageJson.version);
+      const lat = cleanVer(latestTag);
+
+      const p1 = lat.split('.').map((x: string) => parseInt(x) || 0);
+      const p2 = cur.split('.').map((x: string) => parseInt(x) || 0);
+      let isNewer = false;
+      for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+        const a = p1[i] || 0;
+        const b = p2[i] || 0;
+        if (a > b) {
+          isNewer = true;
+          break;
+        }
+        if (a < b) {
+          break;
+        }
+      }
+
+      if (isNewer) {
+        setUpdateInfo({
+          status: 'available',
+          latestVersion: latestTag.startsWith('v') ? latestTag : `v${latestTag}`,
+          releaseUrl,
+        });
+      } else {
+        setUpdateInfo({
+          status: 'latest',
+          latestVersion: latestTag.startsWith('v') ? latestTag : `v${latestTag}`,
+          releaseUrl,
+        });
+      }
+    } catch (err: any) {
+      console.error('Check update failed:', err);
+      setUpdateInfo({
+        status: 'error',
+        releaseUrl: 'https://github.com/harry10086/WeaselTune/releases',
+        errorMessage: '检查失败，请确认网络连接',
+      });
     }
   };
 
@@ -456,47 +519,59 @@ export function App() {
         }}
       >
         {/* 产品 Brand */}
-        <div style={{ padding: '24px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img
-            src="/Rime_logo.svg"
-            alt="Rime Logo"
-            style={{
-              width: '38px',
-              height: '38px',
-              objectFit: 'contain',
-              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
-            }}
-          />
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
-                WeaselTune
-              </span>
-              <button
-                type="button"
-                onClick={openRepoUrl}
-                title="访问 GitHub 项目仓库 (WeaselTune)"
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: 'var(--accent)',
-                  backgroundColor: 'var(--accent-glow)',
-                  padding: '2px 7px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-accent)',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  lineHeight: '1',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <span>v0.2.5</span>
-                <ExternalLink size={11} />
-              </button>
-            </div>
+        <div
+          style={{
+            padding: '20px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img
+              src="/Rime_logo.svg"
+              alt="Rime Logo"
+              style={{
+                width: '36px',
+                height: '36px',
+                objectFit: 'contain',
+                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
+              }}
+            />
+            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>
+              WeaselTune
+            </span>
           </div>
+
+          <button
+            type="button"
+            onClick={() => openExternalUrl('https://github.com/harry10086/WeaselTune')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 6px',
+              borderRadius: '6px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              transition: 'color 0.15s ease',
+            }}
+            title="访问 GitHub 项目仓库 (WeaselTune)"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--text-main)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--text-muted)';
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+            </svg>
+            <ExternalLink size={12} style={{ opacity: 0.7 }} />
+          </button>
         </div>
 
         {/* 导航菜单 */}
@@ -531,16 +606,117 @@ export function App() {
           })}
         </nav>
 
-        {/* 底部环境状态标识 */}
-        <div style={{ padding: '20px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-dim)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <span style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: env?.weasel_installed ? '#34d399' : '#f43f5e' }} />
-            <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-              Weasel {env?.weasel_version || '未就绪'}
-            </span>
+        {/* 底部环境状态与检查更新 */}
+        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: env?.weasel_installed ? '#34d399' : '#f43f5e' }} />
+              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>
+                Weasel {env?.weasel_version || '未就绪'}
+              </span>
+            </div>
+            <div className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              主方案: {env?.active_schema_name || '雾凇拼音'}
+            </div>
           </div>
-          <div className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            主方案: {env?.active_schema_name || '雾凇拼音'}
+
+          {/* 检查更新按钮与结果反馈 */}
+          <div style={{ paddingTop: '8px', borderTop: '1px solid var(--border-light)' }}>
+            <button
+              type="button"
+              onClick={checkForUpdates}
+              disabled={updateInfo.status === 'checking'}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                padding: '6px 10px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: updateInfo.status === 'checking' ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              title="连接 GitHub 检测 WeaselTune 最新版本"
+            >
+              <RefreshCw size={13} className={updateInfo.status === 'checking' ? 'spin' : ''} />
+              <span>{updateInfo.status === 'checking' ? '正在检查更新...' : '检查版本更新'}</span>
+            </button>
+
+            {updateInfo.status === 'available' && (
+              <div
+                style={{
+                  marginTop: '8px',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ color: '#38bdf8', fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>🎉 发现新版本 {updateInfo.latestVersion}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openExternalUrl(updateInfo.releaseUrl || 'https://github.com/harry10086/WeaselTune/releases')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#ffffff',
+                    backgroundColor: '#0284c7',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    marginTop: '2px',
+                    justifyContent: 'center',
+                  }}
+                >
+                  前往 GitHub Releases 下载
+                  <ExternalLink size={11} />
+                </button>
+              </div>
+            )}
+
+            {updateInfo.status === 'latest' && (
+              <div style={{ marginTop: '8px', padding: '6px 8px', borderRadius: '6px', backgroundColor: 'rgba(52, 211, 153, 0.1)', border: '1px solid rgba(52, 211, 153, 0.25)', fontSize: '11px', color: '#34d399', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                <CheckCircle2 size={12} />
+                <span>已是最新版本 (v{packageJson.version})</span>
+              </div>
+            )}
+
+            {updateInfo.status === 'error' && (
+              <div style={{ marginTop: '6px', fontSize: '11px', color: '#f87171', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span>{updateInfo.errorMessage}</span>
+                <button
+                  type="button"
+                  onClick={() => openExternalUrl(updateInfo.releaseUrl || 'https://github.com/harry10086/WeaselTune/releases')}
+                  style={{
+                    color: 'var(--accent)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    fontSize: '11px',
+                  }}
+                >
+                  直接打开 Releases 页面
+                </button>
+              </div>
+            )}
+
+
           </div>
         </div>
       </aside>
