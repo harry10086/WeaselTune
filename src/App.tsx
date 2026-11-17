@@ -16,6 +16,7 @@ import { KeysView } from './components/KeysView';
 import { PhrasesView } from './components/PhrasesView';
 import { AppRulesView } from './components/AppRulesView';
 import { BackupDiffView } from './components/BackupDiffView';
+import { StatsView } from './components/StatsView';
 import {
   LayoutDashboard,
   Palette,
@@ -24,6 +25,7 @@ import {
   BookA,
   Monitor,
   History,
+  ChartColumnBig,
   RefreshCw,
   Save,
   CheckCircle2,
@@ -431,6 +433,7 @@ export function App() {
 
   const navItems = [
     { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
+    { id: 'stats', label: '打字统计', icon: ChartColumnBig },
     { id: 'appearance', label: '外观与皮肤', icon: Palette },
     { id: 'rime_ice', label: '拼音方案与词库', icon: Sparkles },
     { id: 'keys', label: '输入行为与按键', icon: Keyboard },
@@ -489,7 +492,7 @@ export function App() {
                   transition: 'all 0.15s ease',
                 }}
               >
-                <span>v0.2.4</span>
+                <span>v0.2.5</span>
                 <ExternalLink size={11} />
               </button>
             </div>
@@ -739,6 +742,8 @@ export function App() {
                   deployerPath={env?.deployer_path}
                 />
               )}
+
+              {activeTab === 'stats' && <StatsView userDir={env?.rime_user_dir} showToast={showToast} />}
             </>
           )}
         </div>

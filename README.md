@@ -180,10 +180,13 @@ WeaselTune/
 │       ├── backup.rs        # 时间戳备份、差异对比与回滚
 │       ├── phrases.rs       # custom_phrase.txt 表格化解析与序列化
 │       └── lib.rs           # Tauri IPC 命令注册与全链路集成测试
+├── extras/                  # 扩展脚本 (如 input_stats.lua 打字统计采集器)
+├── docs/                    # 补充功能与已知限制说明文档
 └── src/                     # React 前端现代 UI
     ├── components/
     │   ├── CandidatePreview.tsx # 实时候选框高保真预览
     │   ├── DashboardView.tsx    # 仪表盘与环境诊断
+    │   ├── StatsView.tsx        # 打字统计与打字热力图
     │   ├── AppearanceView.tsx   # 外观、皮肤、横竖排与圆角
     │   ├── RimeIceView.tsx      # 雾凇拼音功能开关与模糊音
     │   ├── KeysView.tsx         # 翻页按键与中英切换习惯
@@ -196,6 +199,13 @@ WeaselTune/
 
 ```
 ## 📦 更新
+### v0.2.5 版本更新摘要
+ * 🐞 **彻底修复皮肤作者字段引号未转义导致 YAML 损坏的严重缺陷 (Issue #1)**：
+   - **字符串安全转义**：底层增加 `yaml_escape_str` 机制，针对皮肤 `author`、`name`、应用名及配色方案标识中的 `"` 等特殊字符进行严格 YAML 转义，彻底解决薄荷输入法 `mint_light_green` 等含双引号作者信息的皮肤保存时破坏 `weasel.custom.yaml` 的问题；
+   - **补丁写入语法自检**：写入前自动调用 `validate_yaml` 对生成的补丁进行语法校验，严密防护非法 YAML 写入导致的小狼毫配置失效回退。
+ * 📊 **新增「打字统计」可视化看板 (Issue #2)**：
+   - **非侵入式轻量采集**：通过输入法侧 `input_stats.lua` 插件监听上屏字数追加到 `%APPDATA%\Rime\typing_stats.jsonl`，完全在本地记录字数与日期，绝不记录任何打字输入内容、零网络外发；
+   - **丰富可视化指标**：支持一键在界面开启采集器并自动重新部署，提供今日/近 7 天/近 30 天/累计打字量、近 30 天打字柱状图以及最近 12 周活跃热力图。
 ### v0.2.4 版本更新摘要
  * 🧠 **万象拼音语言模型完整支持**：
    - **自动扫描与识别**：后端底层自动扫描 `%APPDATA%\Rime` 目录下所有 `*.gram` 语言模型文件（如万象官方 `wanxiang-lts-zh-hans.gram`），自动提取模型标识与文件大小，并在系统仪表盘以专属诊断卡片直观呈现；

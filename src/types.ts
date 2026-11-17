@@ -145,6 +145,16 @@ export interface RimeIceToggles {
   grammar_model?: string;    // 模型标识名 (如 wanxiang-lts-zh-hans)
   grammar_collocation_max_length?: number; // 搭配最大长度 (默认 6)
   grammar_collocation_min_length?: number; // 搭配最小长度 (默认 2)
+  // 打字统计
+  enable_typing_stats?: boolean; // 打字统计开关
+}
+
+export interface TypingStatsStatus {
+  enabled: boolean;
+  lua_installed: boolean;
+  data_exists: boolean;
+  total_chars: number;
+  file_path: string;
 }
 
 export interface SchemaItem {

@@ -227,6 +227,158 @@ fn parse_color_scheme_yaml(yaml_str: String) -> Result<patcher::ColorSchemeItem,
     patcher::parse_color_scheme_yaml(&yaml_str)
 }
 
+fn resolve_actual_user_dir(user_dir: Option<&str>) -> Result<String, String> {
+    if let Some(d) = user_dir {
+        if !d.trim().is_empty() {
+            return Ok(d.trim().to_string());
+        }
+    }
+    let (_, detected_user_dir, _) = detector::detect_weasel_paths();
+    if let Some(d) = detected_user_dir {
+        return Ok(d);
+    }
+    #[cfg(windows)]
+    {
+        let appdata = std::env::var("APPDATA").map_err(|_| "无法定位 Rime 用户目录或 APPDATA".to_string())?;
+        Ok(std::path::PathBuf::from(appdata).join("Rime").to_string_lossy().to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").map_err(|_| "无法定位用户 HOME 目录".to_string())?;
+        Ok(std::path::PathBuf::from(home).join("Library/Rime").to_string_lossy().to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let home = std::env::var("HOME").map_err(|_| "无法定位用户 HOME 目录".to_string())?;
+        let candidates = [
+            std::path::PathBuf::from(&home).join(".local/share/fcitx5/rime"),
+            std::path::PathBuf::from(&home).join(".config/fcitx5/rime"),
+            std::path::PathBuf::from(&home).join(".config/ibus/rime"),
+        ];
+        let p = candidates.into_iter().find(|p| p.exists()).unwrap_or_else(|| {
+            std::path::PathBuf::from(home).join(".local/share/fcitx5/rime")
+        });
+        Ok(p.to_string_lossy().to_string())
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        Err("未知系统平台，无法定位 Rime 用户目录".to_string())
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct TypingStatsDay {
+    pub date: String,
+    pub chars: u64,
+}
+
+#[derive(serde::Serialize)]
+pub struct TypingStatsStatus {
+    pub enabled: bool,
+    pub lua_installed: bool,
+    pub data_exists: bool,
+    pub total_chars: u64,
+    pub file_path: String,
+}
+
+/// 读取输入法侧 `input_stats.lua` 写入的每日字数统计（只含日期与字数）。
+#[tauri::command]
+fn read_typing_stats(user_dir: Option<String>) -> Result<Vec<TypingStatsDay>, String> {
+    let actual_dir = resolve_actual_user_dir(user_dir.as_deref())?;
+    let path = std::path::Path::new(&actual_dir).join("typing_stats.jsonl");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取 typing_stats.jsonl 失败: {e}"))?;
+
+    let mut daily: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(date) = value.get("date").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(chars) = value.get("chars").and_then(|v| v.as_u64()) else {
+            continue;
+        };
+        *daily.entry(date.to_string()).or_insert(0) += chars;
+    }
+
+    Ok(daily
+        .into_iter()
+        .map(|(date, chars)| TypingStatsDay { date, chars })
+        .collect())
+}
+
+/// 查询打字统计模块的启用与数据状态
+#[tauri::command]
+fn get_typing_stats_status(user_dir: Option<String>) -> Result<TypingStatsStatus, String> {
+    let actual_dir = resolve_actual_user_dir(user_dir.as_deref())?;
+    let u_path = std::path::Path::new(&actual_dir);
+    let lua_file = u_path.join("lua").join("input_stats.lua");
+    let lua_installed = lua_file.exists();
+
+    let stats_file = u_path.join("typing_stats.jsonl");
+    let data_exists = stats_file.exists();
+
+    let mut total_chars: u64 = 0;
+    if data_exists {
+        if let Ok(content) = std::fs::read_to_string(&stats_file) {
+            for line in content.lines() {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) {
+                    if let Some(chars) = value.get("chars").and_then(|v| v.as_u64()) {
+                        total_chars += chars;
+                    }
+                }
+            }
+        }
+    }
+
+    let config = patcher::load_unified_config(&actual_dir);
+    let enabled = config.rime_ice_toggles.enable_typing_stats;
+
+    Ok(TypingStatsStatus {
+        enabled,
+        lua_installed,
+        data_exists,
+        total_chars,
+        file_path: stats_file.to_string_lossy().to_string(),
+    })
+}
+
+/// 一键开启或停用打字统计，自动维护 Lua 采集器与补丁，并静默重新部署
+#[tauri::command]
+async fn set_typing_stats_enabled(user_dir: Option<String>, enabled: bool) -> Result<DeployResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let actual_dir = resolve_actual_user_dir(user_dir.as_deref())?;
+
+        // 1. 读取当前统一配置并修改开关
+        let mut config = patcher::load_unified_config(&actual_dir);
+        config.rime_ice_toggles.enable_typing_stats = enabled;
+
+        // 2. 自动写入备份快照
+        let _ = backup::create_snapshot(
+            &actual_dir,
+            Some(if enabled { "enable_typing_stats" } else { "disable_typing_stats" }),
+        );
+
+        // 3. 保存补丁并同步 Lua 文件
+        patcher::save_unified_config(&actual_dir, config)?;
+
+        // 4. 自动触发重新部署使之立即生效
+        let res = deployer::trigger_deploy(None);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("调度打字统计切换任务失败: {e}"))?
+}
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -271,6 +423,9 @@ pub fn run() {
             delete_custom_dict,
             parse_color_scheme_yaml,
             get_phrase_files_status,
+            read_typing_stats,
+            get_typing_stats_status,
+            set_typing_stats_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WeaselTune");
@@ -467,5 +622,71 @@ author: "Tester"
         // Test invalid yaml syntax
         let invalid = "name: [unclosed list";
         assert!(patcher::parse_color_scheme_yaml(invalid).is_err());
+    }
+
+    #[test]
+    fn test_yaml_escape_and_quote_issue_1() {
+        use patcher::{yaml_escape_str, validate_yaml};
+
+        // 薄荷拼音中的复杂作者字段（含双引号，复现 Issue #1）
+        let raw_author = r#"Mintimate <"Mintimate's Blog">"#;
+        let escaped = yaml_escape_str(raw_author);
+        assert_eq!(escaped, r#"Mintimate <\"Mintimate's Blog\">"#);
+
+        // 拼接为 YAML 补丁
+        let yaml_snippet = format!(
+            "patch:\n  \"preset_color_schemes/mint_light_green/author\": \"{}\"\n",
+            escaped
+        );
+
+        // 校验 YAML 合法性
+        let val_res = validate_yaml(&yaml_snippet, "weasel.custom.yaml");
+        assert!(val_res.is_ok(), "YAML 验证失败: {:?}", val_res.err());
+
+        // 解析并验证反序列化出的内容恢复为原始字符串
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml_snippet).unwrap();
+        let author_val = parsed
+            .get("patch")
+            .and_then(|p| p.get("preset_color_schemes/mint_light_green/author"))
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert_eq!(author_val, raw_author);
+    }
+
+    #[test]
+    fn test_typing_stats_toggle() {
+        let temp_dir = std::env::temp_dir().join("weaseltune_test_stats_toggle");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let u_str = temp_dir.to_str().unwrap();
+
+        // 模拟已存在方案文件
+        std::fs::write(temp_dir.join("rime_ice.schema.yaml"), "schema:\n  schema_id: rime_ice\n").unwrap();
+
+        // 1. 开启打字统计
+        let mut config = patcher::load_unified_config(u_str);
+        config.rime_ice_toggles.enable_typing_stats = true;
+        let save_res = patcher::save_unified_config(u_str, config);
+        assert!(save_res.is_ok());
+
+        // 检查 lua 文件是否存在
+        let lua_file = temp_dir.join("lua").join("input_stats.lua");
+        assert!(lua_file.exists());
+
+        // 检查 rime_ice.custom.yaml 是否挂载了 filter
+        let custom_content = std::fs::read_to_string(temp_dir.join("rime_ice.custom.yaml")).unwrap();
+        assert!(custom_content.contains("lua_filter@*input_stats"));
+
+        // 2. 关闭打字统计
+        let mut config_disabled = patcher::load_unified_config(u_str);
+        assert!(config_disabled.rime_ice_toggles.enable_typing_stats);
+        config_disabled.rime_ice_toggles.enable_typing_stats = false;
+        let save_dis_res = patcher::save_unified_config(u_str, config_disabled);
+        assert!(save_dis_res.is_ok());
+
+        let custom_disabled_content = std::fs::read_to_string(temp_dir.join("rime_ice.custom.yaml")).unwrap();
+        assert!(!custom_disabled_content.contains("lua_filter@*input_stats"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
