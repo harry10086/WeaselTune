@@ -317,7 +317,7 @@ impl Default for RimeIceToggles {
             enable_grammar: false,
             grammar_model: String::new(),
             grammar_collocation_max_length: 6,
-            grammar_collocation_min_length: 2,
+            grammar_collocation_min_length: 3,
             enable_typing_stats: false,
         }
     }
@@ -3432,6 +3432,16 @@ pub fn load_unified_config(user_dir: &str) -> UnifiedFullConfig {
     }
     rime_ice_toggles.enable_typing_stats = lua_file.exists() && stats_patch_detected;
 
+    // 若使用的是万象模型（如 wanxiang-lts-zh-hans），自动对齐官方配方的最佳搭配长度实践
+    if rime_ice_toggles.grammar_model.to_lowercase().contains("wanxiang") {
+        if rime_ice_toggles.grammar_collocation_min_length < 3 {
+            rime_ice_toggles.grammar_collocation_min_length = 3;
+        }
+        if rime_ice_toggles.grammar_collocation_max_length == 0 {
+            rime_ice_toggles.grammar_collocation_max_length = 6;
+        }
+    }
+
     let dict_files = scan_installed_dicts(user_dir);
     let custom_dicts = scan_custom_dicts(user_dir);
 
@@ -3715,6 +3725,26 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
         ""
     };
 
+    // 智能解析语言模型最佳长度搭配（若未指定长度，自动对齐官方配方的 6 / 3 实践）
+    let resolve_grammar_lens = |model: &str, raw_max: u32, raw_min: u32| -> (u32, u32) {
+        let is_wx = model.to_lowercase().contains("wanxiang");
+        let max_len = if raw_max > 0 {
+            raw_max
+        } else if is_wx {
+            6
+        } else {
+            5
+        };
+        let min_len = if raw_min > 0 {
+            raw_min
+        } else if is_wx {
+            3
+        } else {
+            2
+        };
+        (max_len, min_len)
+    };
+
     // 4. 针对各大拼音方案分别生成专属定制补丁（基于真实的 schema switch 索引生成并严格排重，杜绝 YAML 重复键）
     let append_switch_resets = |yaml: &mut String, resets: &std::collections::BTreeMap<usize, u64>| {
         if !resets.is_empty() {
@@ -3856,15 +3886,28 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
 
         if config.rime_ice_toggles.enable_grammar && !config.rime_ice_toggles.grammar_model.trim().is_empty() {
             let model = config.rime_ice_toggles.grammar_model.trim();
-            rime_ice_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+            let (max_len, min_len) = resolve_grammar_lens(model, config.rime_ice_toggles.grammar_collocation_max_length, config.rime_ice_toggles.grammar_collocation_min_length);
+            rime_ice_yaml.push_str("\n  # Octagram 上下文语言模型补丁 (科学调优)\n");
             rime_ice_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
-            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", config.rime_ice_toggles.grammar_collocation_max_length));
-            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", config.rime_ice_toggles.grammar_collocation_min_length));
-            rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
+            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
+            rime_ice_yaml.push_str("  \"grammar/collocation_penalty\": -14\n");
+            rime_ice_yaml.push_str("  \"grammar/non_collocation_penalty\": -6\n");
+            rime_ice_yaml.push_str("  \"grammar/weak_collocation_penalty\": -100\n");
+            rime_ice_yaml.push_str("  \"grammar/rear_penalty\": -20\n");
+            rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            rime_ice_yaml.push_str("  \"translator/max_homophones\": 8\n");
         } else {
             rime_ice_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
             rime_ice_yaml.push_str("  \"grammar/language\": ~\n");
+            rime_ice_yaml.push_str("  \"grammar/collocation_max_length\": ~\n");
+            rime_ice_yaml.push_str("  \"grammar/collocation_min_length\": ~\n");
+            rime_ice_yaml.push_str("  \"grammar/collocation_penalty\": ~\n");
+            rime_ice_yaml.push_str("  \"grammar/non_collocation_penalty\": ~\n");
+            rime_ice_yaml.push_str("  \"grammar/weak_collocation_penalty\": ~\n");
+            rime_ice_yaml.push_str("  \"grammar/rear_penalty\": ~\n");
             rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            rime_ice_yaml.push_str("  \"translator/max_homophones\": ~\n");
         }
 
         let _ = validate_yaml(&rime_ice_yaml, "rime_ice.custom.yaml");
@@ -3936,25 +3979,28 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 } else {
                     "zh-hans-t-essay-bgw"
                 };
-                let max_len = if config.rime_ice_toggles.grammar_collocation_max_length > 0 {
-                    config.rime_ice_toggles.grammar_collocation_max_length
-                } else {
-                    6
-                };
-                let min_len = if config.rime_ice_toggles.grammar_collocation_min_length > 0 {
-                    config.rime_ice_toggles.grammar_collocation_min_length
-                } else {
-                    2
-                };
-                frost_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+                let (max_len, min_len) = resolve_grammar_lens(model, config.rime_ice_toggles.grammar_collocation_max_length, config.rime_ice_toggles.grammar_collocation_min_length);
+                frost_yaml.push_str("\n  # Octagram 上下文语言模型补丁 (科学调优)\n");
                 frost_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
                 frost_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
                 frost_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
-                frost_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+                frost_yaml.push_str("  \"grammar/collocation_penalty\": -14\n");
+                frost_yaml.push_str("  \"grammar/non_collocation_penalty\": -6\n");
+                frost_yaml.push_str("  \"grammar/weak_collocation_penalty\": -100\n");
+                frost_yaml.push_str("  \"grammar/rear_penalty\": -20\n");
+                frost_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                frost_yaml.push_str("  \"translator/max_homophones\": 8\n");
             } else {
                 frost_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
                 frost_yaml.push_str("  \"grammar/language\": ~\n");
+                frost_yaml.push_str("  \"grammar/collocation_max_length\": ~\n");
+                frost_yaml.push_str("  \"grammar/collocation_min_length\": ~\n");
+                frost_yaml.push_str("  \"grammar/collocation_penalty\": ~\n");
+                frost_yaml.push_str("  \"grammar/non_collocation_penalty\": ~\n");
+                frost_yaml.push_str("  \"grammar/weak_collocation_penalty\": ~\n");
+                frost_yaml.push_str("  \"grammar/rear_penalty\": ~\n");
                 frost_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                frost_yaml.push_str("  \"translator/max_homophones\": ~\n");
             }
 
             let _ = validate_yaml(&frost_yaml, &format!("{}.custom.yaml", frost_id));
@@ -4022,25 +4068,28 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 } else {
                     "zh-hans-t-essay-bgw"
                 };
-                let max_len = if config.rime_ice_toggles.grammar_collocation_max_length > 0 {
-                    config.rime_ice_toggles.grammar_collocation_max_length
-                } else {
-                    6
-                };
-                let min_len = if config.rime_ice_toggles.grammar_collocation_min_length > 0 {
-                    config.rime_ice_toggles.grammar_collocation_min_length
-                } else {
-                    2
-                };
-                mint_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+                let (max_len, min_len) = resolve_grammar_lens(model, config.rime_ice_toggles.grammar_collocation_max_length, config.rime_ice_toggles.grammar_collocation_min_length);
+                mint_yaml.push_str("\n  # Octagram 上下文语言模型补丁 (科学调优)\n");
                 mint_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
                 mint_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
                 mint_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
-                mint_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+                mint_yaml.push_str("  \"grammar/collocation_penalty\": -14\n");
+                mint_yaml.push_str("  \"grammar/non_collocation_penalty\": -6\n");
+                mint_yaml.push_str("  \"grammar/weak_collocation_penalty\": -100\n");
+                mint_yaml.push_str("  \"grammar/rear_penalty\": -20\n");
+                mint_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                mint_yaml.push_str("  \"translator/max_homophones\": 8\n");
             } else {
                 mint_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
                 mint_yaml.push_str("  \"grammar/language\": ~\n");
+                mint_yaml.push_str("  \"grammar/collocation_max_length\": ~\n");
+                mint_yaml.push_str("  \"grammar/collocation_min_length\": ~\n");
+                mint_yaml.push_str("  \"grammar/collocation_penalty\": ~\n");
+                mint_yaml.push_str("  \"grammar/non_collocation_penalty\": ~\n");
+                mint_yaml.push_str("  \"grammar/weak_collocation_penalty\": ~\n");
+                mint_yaml.push_str("  \"grammar/rear_penalty\": ~\n");
                 mint_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                mint_yaml.push_str("  \"translator/max_homophones\": ~\n");
             }
 
             let _ = validate_yaml(&mint_yaml, &format!("{}.custom.yaml", mint_id));
@@ -4114,25 +4163,28 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             // 万象拼音 Octagram 语言模型补丁
             if config.rime_ice_toggles.enable_grammar && !config.rime_ice_toggles.grammar_model.trim().is_empty() {
                 let model = config.rime_ice_toggles.grammar_model.trim();
-                let max_len = if config.rime_ice_toggles.grammar_collocation_max_length > 0 {
-                    config.rime_ice_toggles.grammar_collocation_max_length
-                } else {
-                    6
-                };
-                let min_len = if config.rime_ice_toggles.grammar_collocation_min_length > 0 {
-                    config.rime_ice_toggles.grammar_collocation_min_length
-                } else {
-                    2
-                };
-                wx_yaml.push_str("\n  # Octagram 上下文语言模型补丁\n");
+                let (max_len, min_len) = resolve_grammar_lens(model, config.rime_ice_toggles.grammar_collocation_max_length, config.rime_ice_toggles.grammar_collocation_min_length);
+                wx_yaml.push_str("\n  # Octagram 上下文语言模型补丁 (科学调优)\n");
                 wx_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
                 wx_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
                 wx_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
-                wx_yaml.push_str("  \"translator/contextual_suggestions\": true\n");
+                wx_yaml.push_str("  \"grammar/collocation_penalty\": -14\n");
+                wx_yaml.push_str("  \"grammar/non_collocation_penalty\": -6\n");
+                wx_yaml.push_str("  \"grammar/weak_collocation_penalty\": -100\n");
+                wx_yaml.push_str("  \"grammar/rear_penalty\": -20\n");
+                wx_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                wx_yaml.push_str("  \"translator/max_homophones\": 8\n");
             } else {
                 wx_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
                 wx_yaml.push_str("  \"grammar/language\": ~\n");
+                wx_yaml.push_str("  \"grammar/collocation_max_length\": ~\n");
+                wx_yaml.push_str("  \"grammar/collocation_min_length\": ~\n");
+                wx_yaml.push_str("  \"grammar/collocation_penalty\": ~\n");
+                wx_yaml.push_str("  \"grammar/non_collocation_penalty\": ~\n");
+                wx_yaml.push_str("  \"grammar/weak_collocation_penalty\": ~\n");
+                wx_yaml.push_str("  \"grammar/rear_penalty\": ~\n");
                 wx_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+                wx_yaml.push_str("  \"translator/max_homophones\": ~\n");
             }
 
             let _ = validate_yaml(&wx_yaml, &format!("{}.custom.yaml", wx_id));

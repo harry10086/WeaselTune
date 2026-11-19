@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { KeyBindingsConfig, SchemaItem } from '../types';
-import { Keyboard, ArrowUpDown, Layers, Check, SlidersHorizontal, X, Radio, ArrowUp, ArrowDown, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { Keyboard, ArrowUpDown, Layers, Check, SlidersHorizontal, X, Radio, ArrowUp, ArrowDown, ChevronDown, ChevronUp, Plus, Star } from 'lucide-react';
 
 interface KeysViewProps {
   keyBindings: KeyBindingsConfig;
@@ -175,6 +175,14 @@ export const KeysView: React.FC<KeysViewProps> = ({
       enabledList[idx + 1] = temp;
     }
     onSchemasChange([...enabledList, ...disabledList]);
+  };
+
+  const setAsDefaultSchema = (id: string) => {
+    const target = schemas.find((s) => s.id === id);
+    if (!target) return;
+    const enabledList = schemas.filter((s) => s.enabled && s.id !== id);
+    const disabledList = schemas.filter((s) => !s.enabled && s.id !== id);
+    onSchemasChange([{ ...target, enabled: true }, ...enabledList, ...disabledList]);
   };
 
   const shiftOptions = [
@@ -731,14 +739,50 @@ export const KeysView: React.FC<KeysViewProps> = ({
                 </div>
               </div>
 
-              <label className="toggle-switch" title="关闭后将从当前输入方案选单中移除">
-                <input
-                  type="checkbox"
-                  checked={s.enabled}
-                  onChange={() => toggleSchema(s.id)}
-                />
-                <span className="slider"></span>
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {idx > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAsDefaultSchema(s.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      color: '#38bdf8',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.18)';
+                      e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.6)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.08)';
+                      e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+                    }}
+                    title="一键将此方案置顶为首选默认输入方案"
+                  >
+                    <Star size={13} />
+                    <span>设为默认方案</span>
+                  </button>
+                )}
+
+                <label className="toggle-switch" title="关闭后将从当前输入方案选单中移除">
+                  <input
+                    type="checkbox"
+                    checked={s.enabled}
+                    onChange={() => toggleSchema(s.id)}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
             </div>
           ))}
 

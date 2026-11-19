@@ -39,9 +39,10 @@ function fmtNum(n: number): string {
 interface StatsViewProps {
   userDir?: string;
   showToast?: (text: string, type?: 'success' | 'error') => void;
+  onStatsToggled?: (enabled: boolean) => void;
 }
 
-export function StatsView({ userDir, showToast }: StatsViewProps) {
+export function StatsView({ userDir, showToast, onStatsToggled }: StatsViewProps) {
   const [days, setDays] = useState<DayStat[]>([]);
   const [status, setStatus] = useState<TypingStatsStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +60,7 @@ export function StatsView({ userDir, showToast }: StatsViewProps) {
       setDays(statsRes ?? []);
       if (statusRes) {
         setStatus(statusRes);
+        onStatsToggled?.(statusRes.enabled);
       }
     } catch (e) {
       setError(String(e));
@@ -76,6 +78,7 @@ export function StatsView({ userDir, showToast }: StatsViewProps) {
         enabled: enable,
       });
       if (res.success) {
+        onStatsToggled?.(enable);
         showToast?.(
           enable
             ? '打字统计已成功启用并完成重新部署！现在正常输入即可自动累计字数。'

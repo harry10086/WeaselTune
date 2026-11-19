@@ -63,6 +63,9 @@ pub fn run_weasel_command(
 
     // 2. 构造并启动子进程，设置 Windows CREATE_NO_WINDOW 标志避免控制台弹窗与标准流挂起
     let mut cmd = Command::new(&deployer_path);
+    if let Some(parent) = std::path::Path::new(&deployer_path).parent() {
+        cmd.current_dir(parent);
+    }
     cmd.arg(arg);
 
     #[cfg(windows)]

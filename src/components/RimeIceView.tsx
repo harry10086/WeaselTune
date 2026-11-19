@@ -1952,11 +1952,12 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                       if (checked && (!defaultModel || defaultModel.trim() === '')) {
                         defaultModel = availableGrammarModels[0]?.name || (isWanxiang ? 'wanxiang-lts-zh-hans' : 'zh-hans-t-essay-bgw');
                       }
+                      const isWx = (defaultModel || '').toLowerCase().includes('wanxiang') || isWanxiang;
                       updateToggles({
                         enable_grammar: checked,
                         grammar_model: defaultModel,
-                        grammar_collocation_max_length: toggles.grammar_collocation_max_length || (isWanxiang ? 6 : 5),
-                        grammar_collocation_min_length: toggles.grammar_collocation_min_length || 2,
+                        grammar_collocation_max_length: toggles.grammar_collocation_max_length || (isWx ? 6 : 5),
+                        grammar_collocation_min_length: toggles.grammar_collocation_min_length || (isWx ? 3 : 2),
                       });
                     }}
                   />
@@ -1965,103 +1966,125 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
               </div>
 
               {/* 展开的语言模型参数配置 */}
-              {toggles.enable_grammar && (
-                <div
-                  style={{
-                    marginTop: '16px',
-                    paddingTop: '16px',
-                    borderTop: '1px solid var(--border)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '14px',
-                  }}
-                >
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '14px', alignItems: 'end' }}>
-                    {/* 模型文件选择 */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', display: 'block', marginBottom: '6px' }}>
-                        绑定的语法模型名称 (grammar/language)
-                      </label>
-                      {availableGrammarModels.length > 0 ? (
-                        <select
-                          value={toggles.grammar_model || availableGrammarModels[0]?.name || ''}
-                          onChange={(e) => updateToggles({ grammar_model: e.target.value })}
-                          style={{
-                            width: '100%',
-                            padding: '8px 10px',
-                            borderRadius: '8px',
-                            backgroundColor: 'var(--bg-secondary)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text-main)',
-                            fontSize: '13px',
-                          }}
-                        >
-                          {availableGrammarModels.map((m) => (
-                            <option key={m.name} value={m.name}>
-                              {m.filename} ({m.size_formatted})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={toggles.grammar_model || (isWanxiang ? 'wanxiang-lts-zh-hans' : 'zh-hans-t-essay-bgw')}
-                          onChange={(e) => updateToggles({ grammar_model: e.target.value })}
-                          placeholder="模型文件名（不含 .gram 后缀）"
-                          style={{
-                            width: '100%',
-                            padding: '8px 10px',
-                            borderRadius: '8px',
-                            backgroundColor: 'var(--bg-secondary)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text-main)',
-                            fontSize: '13px',
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* 搭配最大长度 */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>
-                          搭配最大长度 <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 500 }}>(推荐 5~6 词)</span>
+              {toggles.enable_grammar && (() => {
+                const activeModelName = toggles.grammar_model || availableGrammarModels[0]?.name || (isWanxiang ? 'wanxiang-lts-zh-hans' : 'zh-hans-t-essay-bgw');
+                const isWanxiangModel = activeModelName.toLowerCase().includes('wanxiang') || isWanxiang;
+                return (
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      paddingTop: '16px',
+                      borderTop: '1px solid var(--border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '14px',
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '14px', alignItems: 'end' }}>
+                      {/* 模型文件选择 */}
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', display: 'block', marginBottom: '6px' }}>
+                          绑定的语法模型名称 (grammar/language)
                         </label>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#0284c7' }}>
-                          {toggles.grammar_collocation_max_length ?? (isWanxiang ? 6 : 5)} 词
-                        </span>
+                        {availableGrammarModels.length > 0 ? (
+                          <select
+                            value={toggles.grammar_model || availableGrammarModels[0]?.name || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const isWx = val.toLowerCase().includes('wanxiang') || isWanxiang;
+                              updateToggles({
+                                grammar_model: val,
+                                grammar_collocation_max_length: isWx ? 6 : (toggles.grammar_collocation_max_length || 5),
+                                grammar_collocation_min_length: isWx ? 3 : (toggles.grammar_collocation_min_length || 2),
+                              });
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              backgroundColor: 'var(--bg-secondary)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--text-main)',
+                              fontSize: '13px',
+                            }}
+                          >
+                            {availableGrammarModels.map((m) => (
+                              <option key={m.name} value={m.name}>
+                                {m.filename} ({m.size_formatted})
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={toggles.grammar_model || (isWanxiang ? 'wanxiang-lts-zh-hans' : 'zh-hans-t-essay-bgw')}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const isWx = val.toLowerCase().includes('wanxiang') || isWanxiang;
+                              updateToggles({
+                                grammar_model: val,
+                                grammar_collocation_max_length: isWx ? 6 : (toggles.grammar_collocation_max_length || 5),
+                                grammar_collocation_min_length: isWx ? 3 : (toggles.grammar_collocation_min_length || 2),
+                              });
+                            }}
+                            placeholder="模型文件名（不含 .gram 后缀）"
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              backgroundColor: 'var(--bg-secondary)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--text-main)',
+                              fontSize: '13px',
+                            }}
+                          />
+                        )}
                       </div>
-                      <input
-                        type="range"
-                        min="2"
-                        max="8"
-                        step="1"
-                        value={toggles.grammar_collocation_max_length ?? (isWanxiang ? 6 : 5)}
-                        onChange={(e) => updateToggles({ grammar_collocation_max_length: parseInt(e.target.value, 10) })}
-                        style={{ width: '100%', cursor: 'pointer' }}
-                        title="万象官方推荐 5~6 词，兼顾长句命中率与零延迟响应；过大数值可能引起长句输入卡顿"
-                      />
-                    </div>
 
-                    {/* 搭配最小长度 */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>搭配最小长度</label>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#0284c7' }}>
-                          {toggles.grammar_collocation_min_length ?? 2} 词
-                        </span>
+                      {/* 搭配最大长度 */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>
+                            搭配最大长度 <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 500 }}>(推荐 {isWanxiangModel ? '6' : '5~6'} 词)</span>
+                          </label>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#0284c7' }}>
+                            {toggles.grammar_collocation_max_length ?? (isWanxiangModel ? 6 : 5)} 词
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="2"
+                          max="8"
+                          step="1"
+                          value={toggles.grammar_collocation_max_length ?? (isWanxiangModel ? 6 : 5)}
+                          onChange={(e) => updateToggles({ grammar_collocation_max_length: parseInt(e.target.value, 10) })}
+                          style={{ width: '100%', cursor: 'pointer' }}
+                          title="万象官方推荐 6 词，兼顾长句命中率与零延迟响应；过大数值可能引起长句输入卡顿"
+                        />
                       </div>
-                      <input
-                        type="range"
-                        min="1"
-                        max="4"
-                        step="1"
-                        value={toggles.grammar_collocation_min_length ?? 2}
-                        onChange={(e) => updateToggles({ grammar_collocation_min_length: parseInt(e.target.value, 10) })}
-                        style={{ width: '100%', cursor: 'pointer' }}
-                      />
+
+                      {/* 搭配最小长度 */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>
+                            搭配最小长度 <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 500 }}>(推荐 {isWanxiangModel ? '3' : '2~3'} 词)</span>
+                          </label>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#0284c7' }}>
+                            {toggles.grammar_collocation_min_length ?? (isWanxiangModel ? 3 : 2)} 词
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="1"
+                          max="4"
+                          step="1"
+                          value={toggles.grammar_collocation_min_length ?? (isWanxiangModel ? 3 : 2)}
+                          onChange={(e) => updateToggles({ grammar_collocation_min_length: parseInt(e.target.value, 10) })}
+                          style={{ width: '100%', cursor: 'pointer' }}
+                          title="万象官方推荐 3 词（三元模型搭配触发），避免二元高频词提前截断破坏整句语境"
+                        />
+                      </div>
                     </div>
-                  </div>
 
                   {/* 贴心说明与提示 */}
                   <div
@@ -2103,7 +2126,8 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
                     )}
                   </div>
                 </div>
-              )}
+              );
+            })()}
             </div>
           )}
         </div>

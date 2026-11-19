@@ -344,6 +344,19 @@ export function App() {
     loadInitialData();
   }, []);
 
+  const handleStatsToggled = (enabled: boolean) => {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rime_ice_toggles: {
+          ...prev.rime_ice_toggles,
+          enable_typing_stats: enabled,
+        },
+      };
+    });
+  };
+
   // 保存补丁并按需重新部署
   const handleSaveAndDeploy = async (autoDeploy: boolean) => {
     if (!config || !env || saving || deploying) return;
@@ -919,7 +932,13 @@ export function App() {
                 />
               )}
 
-              {activeTab === 'stats' && <StatsView userDir={env?.rime_user_dir} showToast={showToast} />}
+              {activeTab === 'stats' && (
+                <StatsView
+                  userDir={env?.rime_user_dir}
+                  showToast={showToast}
+                  onStatsToggled={handleStatsToggled}
+                />
+              )}
             </>
           )}
         </div>

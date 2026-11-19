@@ -26,8 +26,17 @@ fn get_full_config(user_dir: String) -> UnifiedFullConfig {
 }
 
 #[tauri::command]
-async fn save_config_and_deploy(user_dir: String, config: UnifiedFullConfig, auto_deploy: bool) -> Result<DeployResult, String> {
+async fn save_config_and_deploy(user_dir: String, mut config: UnifiedFullConfig, auto_deploy: bool) -> Result<DeployResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // 关键保护：打字统计的开关由 StatsView 独立管理。
+        // 如果当前磁盘上已经开启了打字统计（lua_file 存在且补丁已注入），
+        // 而前端传入的 config.rime_ice_toggles.enable_typing_stats 因未同步仍为 false，
+        // 则保留已开启状态，防止保存外观/按键等常规配置时意外将打字统计滤镜抹除！
+        let current_disk = load_unified_config(&user_dir);
+        if current_disk.rime_ice_toggles.enable_typing_stats && !config.rime_ice_toggles.enable_typing_stats {
+            config.rime_ice_toggles.enable_typing_stats = true;
+        }
+
         // 1. 自动写入备份快照
         let _ = create_snapshot(&user_dir, Some("auto_save"));
 
@@ -687,6 +696,21 @@ author: "Tester"
         let custom_disabled_content = std::fs::read_to_string(temp_dir.join("rime_ice.custom.yaml")).unwrap();
         assert!(!custom_disabled_content.contains("lua_filter@*input_stats"));
 
+        // 3. 测试常规保存保护：当磁盘已开启打字统计时，如果传入的 config 未携带 enable_typing_stats，防意外冲刷
+        let mut config_reopen = patcher::load_unified_config(u_str);
+        config_reopen.rime_ice_toggles.enable_typing_stats = true;
+        let _ = patcher::save_unified_config(u_str, config_reopen);
+        assert!(patcher::load_unified_config(u_str).rime_ice_toggles.enable_typing_stats);
+
+        let mut general_config = patcher::load_unified_config(u_str);
+        general_config.rime_ice_toggles.enable_typing_stats = false; // 模拟前端旧状态
+        let current_disk = patcher::load_unified_config(u_str);
+        if current_disk.rime_ice_toggles.enable_typing_stats && !general_config.rime_ice_toggles.enable_typing_stats {
+            general_config.rime_ice_toggles.enable_typing_stats = true;
+        }
+        let _ = patcher::save_unified_config(u_str, general_config);
+        assert!(patcher::load_unified_config(u_str).rime_ice_toggles.enable_typing_stats, "常规保存时必须保持已开启的打字统计滤镜");
+
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
@@ -727,17 +751,25 @@ author: "Tester"
         // 验证白霜拼音补丁
         let frost_custom = std::fs::read_to_string(temp_dir.join("rime_frost.custom.yaml")).unwrap();
         assert!(frost_custom.contains("grammar/language"), "白霜拼音必须成功写入语言模型补丁");
-        assert!(frost_custom.contains("\"translator/contextual_suggestions\": true"), "语言模型开启时上下文联想必须为 true");
+        assert!(frost_custom.contains("\"grammar/collocation_penalty\": -14"), "白霜拼音必须包含搭配惩罚权重");
+        assert!(frost_custom.contains("\"grammar/collocation_min_length\": 3"), "万象模型搭配最小长度必须自动对齐官方最佳实践 3");
+        assert!(frost_custom.contains("\"grammar/collocation_max_length\": 6"), "万象模型搭配最大长度必须自动对齐官方最佳实践 6");
+        assert!(frost_custom.contains("\"translator/contextual_suggestions\": false"), "万象/八股文模型下原生单字联想必须为 false");
+        assert!(frost_custom.contains("\"translator/max_homophones\": 8"), "同音字深度必须为 8");
 
         // 验证薄荷拼音补丁
         let mint_custom = std::fs::read_to_string(temp_dir.join("rime_mint.custom.yaml")).unwrap();
         assert!(mint_custom.contains("grammar/language"), "薄荷拼音必须成功写入语言模型补丁");
-        assert!(mint_custom.contains("\"translator/contextual_suggestions\": true"));
+        assert!(mint_custom.contains("\"grammar/collocation_penalty\": -14"));
+        assert!(mint_custom.contains("\"translator/contextual_suggestions\": false"));
+        assert!(mint_custom.contains("\"translator/max_homophones\": 8"));
 
         // 验证万象拼音补丁
         let wx_custom = std::fs::read_to_string(temp_dir.join("wanxiang.custom.yaml")).unwrap();
         assert!(wx_custom.contains("grammar/language"), "万象拼音必须成功写入语言模型补丁");
-        assert!(wx_custom.contains("\"translator/contextual_suggestions\": true"), "万象拼音开启模型时上下文建议不能为 false");
+        assert!(wx_custom.contains("\"grammar/collocation_penalty\": -14"));
+        assert!(wx_custom.contains("\"translator/contextual_suggestions\": false"));
+        assert!(wx_custom.contains("\"translator/max_homophones\": 8"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

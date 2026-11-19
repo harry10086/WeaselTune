@@ -144,7 +144,7 @@ export interface RimeIceToggles {
   enable_grammar?: boolean;  // 上下文语言模型开关
   grammar_model?: string;    // 模型标识名 (如 wanxiang-lts-zh-hans)
   grammar_collocation_max_length?: number; // 搭配最大长度 (默认 6)
-  grammar_collocation_min_length?: number; // 搭配最小长度 (默认 2)
+  grammar_collocation_min_length?: number; // 搭配最小长度 (默认 3)
   // 打字统计
   enable_typing_stats?: boolean; // 打字统计开关
 }
