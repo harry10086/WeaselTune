@@ -737,13 +737,19 @@ author: "Tester"
         let u_str = temp_dir.to_str().unwrap();
 
         std::fs::write(temp_dir.join("rime_frost.schema.yaml"), "schema:\n  schema_id: rime_frost\n").unwrap();
+        std::fs::write(temp_dir.join("rime_frost_t9.schema.yaml"), "schema:\n  schema_id: rime_frost_t9\n").unwrap();
         std::fs::write(temp_dir.join("rime_mint.schema.yaml"), "schema:\n  schema_id: rime_mint\n").unwrap();
-        std::fs::write(temp_dir.join("wanxiang.schema.yaml"), "schema:\n  schema_id: wanxiang\n").unwrap();
+        std::fs::write(temp_dir.join("rime_mint_flypy.schema.yaml"), "schema:\n  schema_id: rime_mint_flypy\n").unwrap();
+        std::fs::write(temp_dir.join("wanxiang.schema.yaml"), "schema:\n  schema_id: wanxiang\nswitches:\n  - name: ascii_mode\n  - name: char_priority\n  - name: charset_filter\n").unwrap();
+        std::fs::write(temp_dir.join("wanxiang_t9.schema.yaml"), "schema:\n  schema_id: wanxiang_t9\n").unwrap();
 
         let mut config = patcher::load_unified_config(u_str);
         config.rime_ice_toggles.enable_grammar = true;
         config.rime_ice_toggles.grammar_model = "wanxiang-lts-zh-hans.gram".to_string();
         config.rime_ice_toggles.traditionalization = false;
+        config.rime_ice_toggles.search_single_char = true;
+        config.rime_ice_toggles.charset_filter = true;
+        config.fuzzy_pinyin.z_zh = true;
 
         let save_res = patcher::save_unified_config(u_str, config);
         assert!(save_res.is_ok(), "保存配置失败: {:?}", save_res.err());
@@ -756,20 +762,91 @@ author: "Tester"
         assert!(frost_custom.contains("\"grammar/collocation_max_length\": 6"), "万象模型搭配最大长度必须自动对齐官方最佳实践 6");
         assert!(frost_custom.contains("\"translator/contextual_suggestions\": false"), "万象/八股文模型下原生单字联想必须为 false");
         assert!(frost_custom.contains("\"translator/max_homophones\": 8"), "同音字深度必须为 8");
+        assert!(frost_custom.contains("speller/algebra/+"), "全拼方案正常包含模糊音");
 
-        // 验证薄荷拼音补丁
-        let mint_custom = std::fs::read_to_string(temp_dir.join("rime_mint.custom.yaml")).unwrap();
-        assert!(mint_custom.contains("grammar/language"), "薄荷拼音必须成功写入语言模型补丁");
-        assert!(mint_custom.contains("\"grammar/collocation_penalty\": -14"));
-        assert!(mint_custom.contains("\"translator/contextual_suggestions\": false"));
-        assert!(mint_custom.contains("\"translator/max_homophones\": 8"));
+        // 验证白霜九键 (非全拼) 不含模糊音
+        let frost_t9_custom = std::fs::read_to_string(temp_dir.join("rime_frost_t9.custom.yaml")).unwrap();
+        assert!(!frost_t9_custom.contains("speller/algebra/+"), "九键方案严禁写入全拼模糊音");
 
-        // 验证万象拼音补丁
+        // 验证薄荷小鹤双拼 (非全拼) 不含模糊音
+        let mint_flypy_custom = std::fs::read_to_string(temp_dir.join("rime_mint_flypy.custom.yaml")).unwrap();
+        assert!(!mint_flypy_custom.contains("speller/algebra/+"), "薄荷双拼严禁写入全拼模糊音");
+
+        // 验证万象拼音补丁及开关
         let wx_custom = std::fs::read_to_string(temp_dir.join("wanxiang.custom.yaml")).unwrap();
         assert!(wx_custom.contains("grammar/language"), "万象拼音必须成功写入语言模型补丁");
         assert!(wx_custom.contains("\"grammar/collocation_penalty\": -14"));
         assert!(wx_custom.contains("\"translator/contextual_suggestions\": false"));
         assert!(wx_custom.contains("\"translator/max_homophones\": 8"));
+        assert!(wx_custom.contains("switches/@1/reset\": 1"), "万象单字优先开关必须生效");
+        assert!(wx_custom.contains("switches/@2/reset\": 1"), "万象字符集过滤开关必须生效");
+
+        // 验证万象九键 (非全拼) 不含模糊音
+        let wx_t9_custom = std::fs::read_to_string(temp_dir.join("wanxiang_t9.custom.yaml")).unwrap();
+        assert!(!wx_t9_custom.contains("speller/algebra/+"), "万象九键严禁写入全拼模糊音");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_rime_ice_double_pinyin_support() {
+        assert!(patcher::is_rime_ice_double_pinyin("double_pinyin_flypy"));
+        assert!(patcher::is_rime_ice_double_pinyin("double_pinyin_mspy"));
+        assert!(patcher::is_rime_ice_double_pinyin("double_pinyin"));
+        assert!(!patcher::is_rime_ice_double_pinyin("rime_ice"));
+        assert!(!patcher::is_rime_ice_double_pinyin("pinyin_simp"));
+
+        let temp_dir = std::env::temp_dir().join(format!("weaseltune_test_dp_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let u_str = temp_dir.to_str().unwrap();
+
+        let flypy_schema = r#"
+schema:
+  schema_id: double_pinyin_flypy
+  name: 小鹤双拼
+switches:
+  - name: ascii_mode
+    states: [ 中, Ａ ]
+  - name: ascii_punct
+    states: [ ¥, $ ]
+  - name: traditionalization
+    states: [ 简, 繁 ]
+  - name: emoji
+    states: [ 💀, 😄 ]
+  - name: full_shape
+    states: [ 半角, 全角 ]
+  - name: search_single_char
+    states: [ 词, 单 ]
+  - name: dict_comment
+    states: [ 译关, 译开 ]
+"#;
+        std::fs::write(temp_dir.join("double_pinyin_flypy.schema.yaml"), flypy_schema).unwrap();
+
+        let mut config = patcher::load_unified_config(u_str);
+        config.schemas.push(patcher::SchemaItem {
+            id: "double_pinyin_flypy".to_string(),
+            name: "小鹤双拼".to_string(),
+            enabled: true,
+            description: "".to_string(),
+            file_path: "".to_string(),
+        });
+        config.rime_ice_toggles.search_single_char = true;
+        config.rime_ice_toggles.dict_comment_chinese_to_english = true;
+        config.fuzzy_pinyin.z_zh = true;
+        config.fuzzy_pinyin.c_ch = true;
+
+        let save_res = patcher::save_unified_config(u_str, config);
+        assert!(save_res.is_ok(), "保存配置失败: {:?}", save_res.err());
+
+        let dp_custom = std::fs::read_to_string(temp_dir.join("double_pinyin_flypy.custom.yaml")).unwrap();
+        // 验证 switches reset 正确生成
+        assert!(dp_custom.contains("switches/@5/reset\": 1"), "search_single_char 开关应正确重置");
+        // 验证 dict_comment_filter 正常生成
+        assert!(dp_custom.contains("dict_comment_filter:"), "双拼方案必须包含中英释义滤镜");
+        assert!(dp_custom.contains("enable_chinese_to_english: true"));
+        // 验证模糊音被严禁写入双拼方案
+        assert!(!dp_custom.contains("speller/algebra/+"), "全拼模糊音严禁污染双拼方案");
+        assert!(!dp_custom.contains("derive/^([zcs])h/$1/"), "平翘舌规则严禁写入双拼");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

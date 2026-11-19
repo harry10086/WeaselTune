@@ -81,10 +81,33 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
     }
   }, [validSchemas]);
 
-  const isIce = selectedSchemaId === 'rime_ice';
+  const isIceDoublePinyin = [
+    'double_pinyin',
+    'double_pinyin_flypy',
+    'double_pinyin_mspy',
+    'double_pinyin_sogou',
+    'double_pinyin_abc',
+    'double_pinyin_jiajia',
+    'double_pinyin_ziguang',
+  ].includes(selectedSchemaId);
+  const isIce = selectedSchemaId === 'rime_ice' || isIceDoublePinyin;
   const isFrost = selectedSchemaId.includes('frost');
   const isMint = selectedSchemaId.includes('mint');
   const isWanxiang = selectedSchemaId.includes('wanxiang');
+  const isNonFullPinyin =
+    isIceDoublePinyin ||
+    selectedSchemaId.includes('double_pinyin') ||
+    selectedSchemaId.includes('flypy') ||
+    selectedSchemaId.includes('mspy') ||
+    selectedSchemaId.includes('sogou') ||
+    selectedSchemaId.includes('ziguang') ||
+    selectedSchemaId.includes('jiajia') ||
+    selectedSchemaId.includes('t9') ||
+    selectedSchemaId.includes('wubi') ||
+    selectedSchemaId.includes('moqi') ||
+    selectedSchemaId.includes('stroke') ||
+    selectedSchemaId.includes('cangjie') ||
+    selectedSchemaId.includes('bopomofo');
   const [features, setFeatures] = useState<SchemeFeatureItem[]>([]);
   const [featuresLoading, setFeaturesLoading] = useState<boolean>(false);
   const [mountsInfo, setMountsInfo] = useState<SchemaDictMountsInfo | null>(null);
@@ -234,8 +257,8 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
       });
     }
 
-    // 若当前为雾凇拼音，联动更新对应 toggles 状态
-    if (selectedSchemaId === 'rime_ice') {
+    // 若当前为雾凇拼音或雾凇双拼，联动更新对应 toggles 状态
+    if (isIce) {
       if (tableName.includes('41448')) {
         updateToggles({ dict_large_char: enabled });
       } else if (tableName.includes('tencent')) {
@@ -590,7 +613,7 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             正在动态解析该方案的主词库入口与挂载清单...
           </div>
         ) : mountsInfo && mountsInfo.mounted_tables.length > 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginBottom: selectedSchemaId === 'rime_ice' ? '20px' : '0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginBottom: isIce ? '20px' : '0' }}>
             {mountsInfo.mounted_tables.map((table) => (
               <div
                 key={table.name}
@@ -1184,8 +1207,16 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
           勾选容易读错或混淆的发音规则，自动生成补丁（写入 <span className="mono" style={{ color: '#38bdf8' }}>{selectedSchemaId}.custom.yaml</span>）。
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-          {/* 平翘舌 */}
+        {isNonFullPinyin ? (
+          <div style={{ padding: '16px 20px', borderRadius: '12px', backgroundColor: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', color: 'var(--text-main)', fontSize: '13px', lineHeight: 1.6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: '#38bdf8', marginBottom: '6px' }}>
+              <span>💡 非全拼方案说明</span>
+            </div>
+            当前选中的为非全拼方案（如双拼、九键或形码方案：<code className="mono" style={{ color: '#38bdf8' }}>{selectedSchemaId}</code>）。此类方案采用固定的专用键位映射或编码体系，全拼的模糊音正则代数运算法则（如平翘舌、前后鼻音互换等）不适用于此类键位映射，若需模糊音建议在全拼方案（如 rime_ice, rime_frost 等）中体验。
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+            {/* 平翘舌 */}
           <div style={{ padding: '16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8', marginBottom: '10px' }}>平翘舌互换</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1321,10 +1352,11 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             </div>
           </div>
         </div>
+        )}
       </div>
 
-      {/* 词典释义滤镜 (Lua) - 仅雾凇拼音定制版可用 */}
-      {selectedSchemaId === 'rime_ice' && (
+      {/* 词典释义滤镜 (Lua) - 雾凇拼音与双拼方案均可用 */}
+      {isIce && (
         <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
             <BookMarked size={20} color="#34d399" />
@@ -1588,8 +1620,8 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             </label>
           </div>
 
-          {/* 词组 / 单字模式 (雾凇 / 白霜) */}
-          {(isIce || isFrost) && (
+          {/* 词组 / 单字模式 (雾凇 / 白霜 / 万象) */}
+          {(isIce || isFrost || isWanxiang) && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.search_single_char ? '1px solid #fbbf24' : '1px solid var(--border)', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', flexShrink: 0 }}>
@@ -1868,8 +1900,43 @@ export const RimeIceView: React.FC<RimeIceViewProps> = ({
             </div>
           )}
 
-          {/* Octagram 上下文语言模型卡片 (万象拼音 / 雾凇拼音 / 本地检测到 .gram 模型) */}
-          {(isWanxiang || isIce || availableGrammarModels.length > 0) && (
+          {/* 字符集过滤 (万象拼音: 8105通规 / 全字表) */}
+          {isWanxiang && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: '10px', backgroundColor: 'var(--bg-tertiary)', border: toggles.charset_filter ? '1px solid #38bdf8' : '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>字符集过滤 (charset_filter)</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      whiteSpace: 'nowrap',
+                      backgroundColor: toggles.charset_filter ? 'rgba(56, 189, 248, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                      color: toggles.charset_filter ? '#38bdf8' : 'var(--text-dim)',
+                    }}
+                  >
+                    当前: {toggles.charset_filter ? '全字集 (大字表)' : '8105 通规常用 (小字集)'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                  开：开启全字集检索生僻汉字（支持 Ctrl+G 实时切换）/ 关：仅限 8105 通用规范字
+                </div>
+              </div>
+              <label className="toggle-switch" style={{ flexShrink: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(toggles.charset_filter)}
+                  onChange={(e) => updateToggles({ charset_filter: e.target.checked })}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          )}
+
+          {/* Octagram 上下文语言模型卡片 (雾凇全拼与双拼 / 万象 / 白霜 / 薄荷 / 本地检测到模型) */}
+          {(isWanxiang || isIce || isFrost || isMint || availableGrammarModels.length > 0) && (
             <div
               style={{
                 gridColumn: '1 / -1',

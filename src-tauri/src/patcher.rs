@@ -1256,6 +1256,38 @@ pub fn enumerate_system_fonts() -> Vec<String> {
     list
 }
 
+pub const RIME_ICE_DOUBLE_PINYIN_IDS: [&str; 7] = [
+    "double_pinyin",
+    "double_pinyin_flypy",
+    "double_pinyin_mspy",
+    "double_pinyin_sogou",
+    "double_pinyin_abc",
+    "double_pinyin_jiajia",
+    "double_pinyin_ziguang",
+];
+
+pub fn is_rime_ice_double_pinyin(schema_id: &str) -> bool {
+    let clean = schema_id.trim().to_lowercase();
+    RIME_ICE_DOUBLE_PINYIN_IDS.contains(&clean.as_str())
+}
+
+pub fn is_non_full_pinyin_schema(schema_id: &str) -> bool {
+    let s = schema_id.trim().to_lowercase();
+    is_rime_ice_double_pinyin(&s)
+        || s.contains("double_pinyin")
+        || s.contains("flypy")
+        || s.contains("mspy")
+        || s.contains("sogou")
+        || s.contains("ziguang")
+        || s.contains("jiajia")
+        || s.contains("t9")
+        || s.contains("wubi")
+        || s.contains("moqi")
+        || s.contains("stroke")
+        || s.contains("cangjie")
+        || s.contains("bopomofo")
+}
+
 /// 根据不同的输入方案动态检测并提取其特色功能与快捷指令
 pub fn detect_schema_features(user_dir: &str, schema_id: &str) -> Vec<SchemeFeatureItem> {
     let mut features = Vec::new();
@@ -1300,7 +1332,7 @@ pub fn detect_schema_features(user_dir: &str, schema_id: &str) -> Vec<SchemeFeat
     let is_frost = sid.contains("frost");
     let is_mint = sid.contains("mint");
     let is_wanxiang = sid.contains("wanxiang");
-    let is_ice = sid.contains("ice");
+    let is_ice = sid.contains("ice") || is_rime_ice_double_pinyin(&sid);
 
     // 1. 符号与表情引导 (symbols)
     if is_frost || is_ice || (content.contains("symbols_v") || (content.contains("punct:") && content.contains("^v"))) {
@@ -3755,163 +3787,201 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
         }
     };
 
-    // A. 雾凇拼音 (rime_ice)
-    let ice_schema_path = u_path.join("rime_ice.schema.yaml");
-    let is_ice_active = ice_schema_path.exists() || config.schemas.iter().any(|s| s.enabled && s.id == "rime_ice");
-    if is_ice_active || !u_path.join("default.custom.yaml").exists() {
-        let mut rime_ice_yaml = String::new();
-        rime_ice_yaml.push_str("# WeaselTune 生成的雾凇拼音专属功能补丁\n");
-        rime_ice_yaml.push_str("patch:\n");
-        rime_ice_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
+    // A. 雾凇拼音族 (rime_ice 以及 7 大官方双拼方案: 自然码、小鹤、微软、搜狗、智能ABC、加加、紫光)
+    let ice_family_ids = [
+        "rime_ice",
+        "double_pinyin",
+        "double_pinyin_flypy",
+        "double_pinyin_mspy",
+        "double_pinyin_sogou",
+        "double_pinyin_abc",
+        "double_pinyin_jiajia",
+        "double_pinyin_ziguang",
+    ];
 
-        let mut resets = std::collections::BTreeMap::new();
-        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "traditionalization") {
-            resets.insert(i, if config.rime_ice_toggles.traditionalization { 1 } else { 0 });
-        }
-        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "full_shape") {
-            resets.insert(i, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
-        }
-        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "ascii_punct") {
-            resets.insert(i, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
-        }
-        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "search_single_char") {
-            resets.insert(i, if config.rime_ice_toggles.search_single_char { 1 } else { 0 });
-        }
-        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "emoji") {
-            resets.insert(i, if config.rime_ice_toggles.emoji { 1 } else { 0 });
-        }
-        if let Some(i) = resolve_switch_index_for_schema(user_dir, "rime_ice", "dict_comment") {
-            let dc_val = if config.rime_ice_toggles.spelling_hints { 0 } else if config.rime_ice_toggles.dict_comment_chinese_to_english { 1 } else { 0 };
-            resets.insert(i, dc_val);
-        }
-        append_switch_resets(&mut rime_ice_yaml, &resets);
+    // 预先维护雾凇词库无损外挂清单 (rime_ice.extended.dict.yaml)
+    let mounted_custom_dicts: Vec<&CustomDictItem> = config.custom_dicts.iter().filter(|d| d.enabled).collect();
+    let has_custom_dicts = !mounted_custom_dicts.is_empty();
 
-        // 词典释义滤镜与候选词拼音互斥处理
-        if config.rime_ice_toggles.spelling_hints {
-            rime_ice_yaml.push_str("  \"translator/spelling_hints\": 8\n");
-            rime_ice_yaml.push_str("  \"translator/always_show_comments\": true\n");
-            rime_ice_yaml.push_str("  \"translator/keep_comments\": true\n"); // 关键：允许 corrector.lua 保留拼音
-            // 候选词拼音开启时自动互斥关闭词典释义
-            rime_ice_yaml.push_str("  # 候选词拼音开启时自动互斥关闭词典释义\n");
-            rime_ice_yaml.push_str("  dict_comment_filter:\n");
-            rime_ice_yaml.push_str("    enable_chinese_to_english: false\n");
-            rime_ice_yaml.push_str("    enable_english_to_chinese: false\n");
-            rime_ice_yaml.push_str(&format!("    max_defs: {}\n", config.rime_ice_toggles.dict_comment_max_defs));
-            rime_ice_yaml.push_str(&format!("    max_length: {}\n", config.rime_ice_toggles.dict_comment_max_length));
-        } else {
-            rime_ice_yaml.push_str("  \"translator/spelling_hints\": 0\n");
-            rime_ice_yaml.push_str("  \"translator/always_show_comments\": false\n");
-            rime_ice_yaml.push_str("  \"translator/keep_comments\": false\n");
-            // 词典释义滤镜正常输出
-            rime_ice_yaml.push_str("  # Lua 词典释义滤镜\n");
-            rime_ice_yaml.push_str("  dict_comment_filter:\n");
-            rime_ice_yaml.push_str(&format!("    enable_chinese_to_english: {}\n", config.rime_ice_toggles.dict_comment_chinese_to_english));
-            rime_ice_yaml.push_str(&format!("    enable_english_to_chinese: {}\n", config.rime_ice_toggles.dict_comment_english_to_chinese));
-            rime_ice_yaml.push_str(&format!("    max_defs: {}\n", config.rime_ice_toggles.dict_comment_max_defs));
-            rime_ice_yaml.push_str(&format!("    max_length: {}\n", config.rime_ice_toggles.dict_comment_max_length));
-        }
+    if has_custom_dicts {
+        let mut ext_yaml = String::new();
+        ext_yaml.push_str("# Rime dictionary\n# encoding: utf-8\n# 由 WeaselTune 自动生成的雾凇扩展词典挂载清单\n---\n");
+        ext_yaml.push_str("name: rime_ice.extended\nversion: \"1.0\"\nsort: by_weight\nuse_preset_vocabulary: true\nimport_tables:\n");
 
-        rime_ice_yaml.push_str(&fuzzy_yaml_block);
-        rime_ice_yaml.push_str(&page_keys_yaml_block);
-        rime_ice_yaml.push_str(stats_filter_block);
-
-        // 雾凇拼音词库无损外挂清单维护
-        let mounted_custom_dicts: Vec<&CustomDictItem> = config.custom_dicts.iter().filter(|d| d.enabled).collect();
-        let has_custom_dicts = !mounted_custom_dicts.is_empty();
-
-        if has_custom_dicts {
-            let mut ext_yaml = String::new();
-            ext_yaml.push_str("# Rime dictionary\n# encoding: utf-8\n# 由 WeaselTune 自动生成的雾凇扩展词典挂载清单\n---\n");
-            ext_yaml.push_str("name: rime_ice.extended\nversion: \"1.0\"\nsort: by_weight\nuse_preset_vocabulary: true\nimport_tables:\n");
-
-            let mut core_tables = Vec::new();
-            let ice_dict_path = u_path.join("rime_ice.dict.yaml");
-            if ice_dict_path.exists() {
-                if let Ok(c) = fs::read_to_string(&ice_dict_path) {
-                    if let Ok(v) = serde_yaml::from_str::<serde_yaml::Value>(&c) {
-                        if let Some(tables) = v.get("import_tables").and_then(|t| t.as_sequence()) {
-                            for t in tables {
-                                if let Some(s) = t.as_str() {
-                                    let s = s.trim().to_string();
-                                    if !s.is_empty() && !core_tables.contains(&s) {
-                                        core_tables.push(s);
-                                    }
+        let mut core_tables = Vec::new();
+        let ice_dict_path = u_path.join("rime_ice.dict.yaml");
+        if ice_dict_path.exists() {
+            if let Ok(c) = fs::read_to_string(&ice_dict_path) {
+                if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&c) {
+                    if let Some(tables) = val.get("import_tables").and_then(|t| t.as_sequence()) {
+                        for t in tables {
+                            if let Some(s) = t.as_str() {
+                                let s = s.trim().to_string();
+                                if !s.is_empty() && !core_tables.contains(&s) {
+                                    core_tables.push(s);
                                 }
                             }
                         }
                     }
                 }
             }
+        }
 
-            if core_tables.is_empty() {
-                core_tables.push("cn_dicts/8105".to_string());
-                if config.rime_ice_toggles.dict_large_char { core_tables.push("cn_dicts/41448".to_string()); }
-                if config.rime_ice_toggles.dict_base { core_tables.push("cn_dicts/base".to_string()); }
-                if config.rime_ice_toggles.dict_ext { core_tables.push("cn_dicts/ext".to_string()); }
-                if config.rime_ice_toggles.dict_tencent { core_tables.push("cn_dicts/tencent".to_string()); }
-                if config.rime_ice_toggles.dict_others { core_tables.push("cn_dicts/others".to_string()); }
-            } else {
-                if config.rime_ice_toggles.dict_large_char && !core_tables.contains(&"cn_dicts/41448".to_string()) {
-                    if let Some(pos) = core_tables.iter().position(|x| x == "cn_dicts/8105") {
-                        core_tables.insert(pos + 1, "cn_dicts/41448".to_string());
-                    } else {
-                        core_tables.insert(0, "cn_dicts/41448".to_string());
-                    }
-                } else if !config.rime_ice_toggles.dict_large_char {
-                    core_tables.retain(|x| x != "cn_dicts/41448");
-                }
-                if !config.rime_ice_toggles.dict_base { core_tables.retain(|x| x != "cn_dicts/base"); }
-                if !config.rime_ice_toggles.dict_ext { core_tables.retain(|x| x != "cn_dicts/ext"); }
-                if !config.rime_ice_toggles.dict_tencent { core_tables.retain(|x| x != "cn_dicts/tencent"); }
-                if !config.rime_ice_toggles.dict_others { core_tables.retain(|x| x != "cn_dicts/others"); }
-            }
-
-            for table in &core_tables {
-                ext_yaml.push_str(&format!("  - {}\n", table));
-            }
-            ext_yaml.push_str("  - rime_ice\n");
-            for cd in &mounted_custom_dicts {
-                ext_yaml.push_str(&format!("  - {}\n", cd.name));
-            }
-            ext_yaml.push_str("...\n");
-
-            let ext_path = u_path.join("rime_ice.extended.dict.yaml");
-            let _ = fs::write(ext_path, ext_yaml);
-
-            rime_ice_yaml.push_str("\n  # 词典挂载列表定制（指向扩展词库以实现无损外挂）\n");
-            rime_ice_yaml.push_str("  \"translator/dictionary\": rime_ice.extended\n");
+        if core_tables.is_empty() {
+            core_tables.push("cn_dicts/8105".to_string());
+            if config.rime_ice_toggles.dict_large_char { core_tables.push("cn_dicts/41448".to_string()); }
+            if config.rime_ice_toggles.dict_base { core_tables.push("cn_dicts/base".to_string()); }
+            if config.rime_ice_toggles.dict_ext { core_tables.push("cn_dicts/ext".to_string()); }
+            if config.rime_ice_toggles.dict_tencent { core_tables.push("cn_dicts/tencent".to_string()); }
+            if config.rime_ice_toggles.dict_others { core_tables.push("cn_dicts/others".to_string()); }
         } else {
-            rime_ice_yaml.push_str("\n  # 词典挂载列表定制（默认核心词库）\n");
+            if config.rime_ice_toggles.dict_large_char && !core_tables.contains(&"cn_dicts/41448".to_string()) {
+                if let Some(pos) = core_tables.iter().position(|x| x == "cn_dicts/8105") {
+                    core_tables.insert(pos + 1, "cn_dicts/41448".to_string());
+                } else {
+                    core_tables.insert(0, "cn_dicts/41448".to_string());
+                }
+            } else if !config.rime_ice_toggles.dict_large_char {
+                core_tables.retain(|x| x != "cn_dicts/41448");
+            }
+            if !config.rime_ice_toggles.dict_base { core_tables.retain(|x| x != "cn_dicts/base"); }
+            if !config.rime_ice_toggles.dict_ext { core_tables.retain(|x| x != "cn_dicts/ext"); }
+            if !config.rime_ice_toggles.dict_tencent { core_tables.retain(|x| x != "cn_dicts/tencent"); }
+            if !config.rime_ice_toggles.dict_others { core_tables.retain(|x| x != "cn_dicts/others"); }
+        }
+
+        for table in &core_tables {
+            ext_yaml.push_str(&format!("  - {}\n", table));
+        }
+        ext_yaml.push_str("  - rime_ice\n");
+        for cd in &mounted_custom_dicts {
+            ext_yaml.push_str(&format!("  - {}\n", cd.name));
+        }
+        ext_yaml.push_str("...\n");
+
+        let ext_path = u_path.join("rime_ice.extended.dict.yaml");
+        let _ = fs::write(ext_path, ext_yaml);
+    }
+
+    let ice_schema_path = u_path.join("rime_ice.schema.yaml");
+    let is_ice_active = ice_schema_path.exists() || config.schemas.iter().any(|s| s.enabled && s.id == "rime_ice");
+
+    for target_id in &ice_family_ids {
+        let is_dp = *target_id != "rime_ice";
+        let is_target_active = config.schemas.iter().any(|s| s.enabled && s.id == *target_id);
+        let target_custom_exists = u_path.join(format!("{}.custom.yaml", target_id)).exists();
+        let target_schema_exists = u_path.join(format!("{}.schema.yaml", target_id)).exists();
+
+        let should_patch = if !is_dp {
+            is_ice_active || !u_path.join("default.custom.yaml").exists()
+        } else {
+            is_target_active || target_custom_exists || (target_schema_exists && is_target_active)
+        };
+
+        if !should_patch {
+            continue;
+        }
+
+        let mut ice_yaml = String::new();
+        if is_dp {
+            ice_yaml.push_str(&format!("# WeaselTune 生成的雾凇双拼专属功能补丁 ({})\n", target_id));
+        } else {
+            ice_yaml.push_str("# WeaselTune 生成的雾凇拼音专属功能补丁\n");
+        }
+        ice_yaml.push_str("patch:\n");
+        ice_yaml.push_str(&format!("  \"menu/page_size\": {}\n", config.style.page_size));
+
+        let mut resets = std::collections::BTreeMap::new();
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, target_id, "traditionalization") {
+            resets.insert(i, if config.rime_ice_toggles.traditionalization { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, target_id, "full_shape") {
+            resets.insert(i, if config.rime_ice_toggles.full_shape { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, target_id, "ascii_punct") {
+            resets.insert(i, if config.rime_ice_toggles.ascii_punct { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, target_id, "search_single_char") {
+            resets.insert(i, if config.rime_ice_toggles.search_single_char { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, target_id, "emoji") {
+            resets.insert(i, if config.rime_ice_toggles.emoji { 1 } else { 0 });
+        }
+        if let Some(i) = resolve_switch_index_for_schema(user_dir, target_id, "dict_comment") {
+            let dc_val = if config.rime_ice_toggles.spelling_hints { 0 } else if config.rime_ice_toggles.dict_comment_chinese_to_english { 1 } else { 0 };
+            resets.insert(i, dc_val);
+        }
+        append_switch_resets(&mut ice_yaml, &resets);
+
+        // 词典释义滤镜与候选词拼音互斥处理
+        if config.rime_ice_toggles.spelling_hints {
+            ice_yaml.push_str("  \"translator/spelling_hints\": 8\n");
+            ice_yaml.push_str("  \"translator/always_show_comments\": true\n");
+            ice_yaml.push_str("  \"translator/keep_comments\": true\n"); // 关键：允许 corrector.lua 保留拼音
+            // 候选词拼音开启时自动互斥关闭词典释义
+            ice_yaml.push_str("  # 候选词拼音开启时自动互斥关闭词典释义\n");
+            ice_yaml.push_str("  dict_comment_filter:\n");
+            ice_yaml.push_str("    enable_chinese_to_english: false\n");
+            ice_yaml.push_str("    enable_english_to_chinese: false\n");
+            ice_yaml.push_str(&format!("    max_defs: {}\n", config.rime_ice_toggles.dict_comment_max_defs));
+            ice_yaml.push_str(&format!("    max_length: {}\n", config.rime_ice_toggles.dict_comment_max_length));
+        } else {
+            ice_yaml.push_str("  \"translator/spelling_hints\": 0\n");
+            ice_yaml.push_str("  \"translator/always_show_comments\": false\n");
+            ice_yaml.push_str("  \"translator/keep_comments\": false\n");
+            // 词典释义滤镜正常输出
+            ice_yaml.push_str("  # Lua 词典释义滤镜\n");
+            ice_yaml.push_str("  dict_comment_filter:\n");
+            ice_yaml.push_str(&format!("    enable_chinese_to_english: {}\n", config.rime_ice_toggles.dict_comment_chinese_to_english));
+            ice_yaml.push_str(&format!("    enable_english_to_chinese: {}\n", config.rime_ice_toggles.dict_comment_english_to_chinese));
+            ice_yaml.push_str(&format!("    max_defs: {}\n", config.rime_ice_toggles.dict_comment_max_defs));
+            ice_yaml.push_str(&format!("    max_length: {}\n", config.rime_ice_toggles.dict_comment_max_length));
+        }
+
+        // 模糊音：全拼方案专属！双拼方案拥有固定键位映射，严禁注入全拼模糊音
+        if !is_dp {
+            ice_yaml.push_str(&fuzzy_yaml_block);
+        }
+
+        ice_yaml.push_str(&page_keys_yaml_block);
+        ice_yaml.push_str(stats_filter_block);
+
+        if has_custom_dicts {
+            ice_yaml.push_str("\n  # 词典挂载列表定制（指向扩展词库以实现无损外挂）\n");
+            ice_yaml.push_str("  \"translator/dictionary\": rime_ice.extended\n");
+        } else {
+            ice_yaml.push_str("\n  # 词典挂载列表定制（默认核心词库）\n");
         }
 
         if config.rime_ice_toggles.enable_grammar && !config.rime_ice_toggles.grammar_model.trim().is_empty() {
             let model = config.rime_ice_toggles.grammar_model.trim();
             let (max_len, min_len) = resolve_grammar_lens(model, config.rime_ice_toggles.grammar_collocation_max_length, config.rime_ice_toggles.grammar_collocation_min_length);
-            rime_ice_yaml.push_str("\n  # Octagram 上下文语言模型补丁 (科学调优)\n");
-            rime_ice_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
-            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
-            rime_ice_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
-            rime_ice_yaml.push_str("  \"grammar/collocation_penalty\": -14\n");
-            rime_ice_yaml.push_str("  \"grammar/non_collocation_penalty\": -6\n");
-            rime_ice_yaml.push_str("  \"grammar/weak_collocation_penalty\": -100\n");
-            rime_ice_yaml.push_str("  \"grammar/rear_penalty\": -20\n");
-            rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
-            rime_ice_yaml.push_str("  \"translator/max_homophones\": 8\n");
+            ice_yaml.push_str("\n  # Octagram 上下文语言模型补丁 (科学调优)\n");
+            ice_yaml.push_str(&format!("  \"grammar/language\": \"{}\"\n", yaml_escape_str(model)));
+            ice_yaml.push_str(&format!("  \"grammar/collocation_max_length\": {}\n", max_len));
+            ice_yaml.push_str(&format!("  \"grammar/collocation_min_length\": {}\n", min_len));
+            ice_yaml.push_str("  \"grammar/collocation_penalty\": -14\n");
+            ice_yaml.push_str("  \"grammar/non_collocation_penalty\": -6\n");
+            ice_yaml.push_str("  \"grammar/weak_collocation_penalty\": -100\n");
+            ice_yaml.push_str("  \"grammar/rear_penalty\": -20\n");
+            ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            ice_yaml.push_str("  \"translator/max_homophones\": 8\n");
         } else {
-            rime_ice_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
-            rime_ice_yaml.push_str("  \"grammar/language\": ~\n");
-            rime_ice_yaml.push_str("  \"grammar/collocation_max_length\": ~\n");
-            rime_ice_yaml.push_str("  \"grammar/collocation_min_length\": ~\n");
-            rime_ice_yaml.push_str("  \"grammar/collocation_penalty\": ~\n");
-            rime_ice_yaml.push_str("  \"grammar/non_collocation_penalty\": ~\n");
-            rime_ice_yaml.push_str("  \"grammar/weak_collocation_penalty\": ~\n");
-            rime_ice_yaml.push_str("  \"grammar/rear_penalty\": ~\n");
-            rime_ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
-            rime_ice_yaml.push_str("  \"translator/max_homophones\": ~\n");
+            ice_yaml.push_str("\n  # 禁用 Octagram 语言模型\n");
+            ice_yaml.push_str("  \"grammar/language\": ~\n");
+            ice_yaml.push_str("  \"grammar/collocation_max_length\": ~\n");
+            ice_yaml.push_str("  \"grammar/collocation_min_length\": ~\n");
+            ice_yaml.push_str("  \"grammar/collocation_penalty\": ~\n");
+            ice_yaml.push_str("  \"grammar/non_collocation_penalty\": ~\n");
+            ice_yaml.push_str("  \"grammar/weak_collocation_penalty\": ~\n");
+            ice_yaml.push_str("  \"grammar/rear_penalty\": ~\n");
+            ice_yaml.push_str("  \"translator/contextual_suggestions\": false\n");
+            ice_yaml.push_str("  \"translator/max_homophones\": ~\n");
         }
 
-        let _ = validate_yaml(&rime_ice_yaml, "rime_ice.custom.yaml");
-        let _ = fs::write(u_path.join("rime_ice.custom.yaml"), &rime_ice_yaml);
+        let custom_fname = format!("{}.custom.yaml", target_id);
+        let _ = validate_yaml(&ice_yaml, &custom_fname);
+        let _ = fs::write(u_path.join(&custom_fname), &ice_yaml);
     }
 
     // B. 白霜拼音 (rime_frost / frost_pinyin 等所有白霜系方案)
@@ -3968,7 +4038,9 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 frost_yaml.push_str("  \"translator/keep_comments\": false\n");
             }
 
-            frost_yaml.push_str(&fuzzy_yaml_block);
+            if !is_non_full_pinyin_schema(frost_id) {
+                frost_yaml.push_str(&fuzzy_yaml_block);
+            }
             frost_yaml.push_str(&page_keys_yaml_block);
             frost_yaml.push_str(stats_filter_block);
 
@@ -4057,7 +4129,9 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             mint_yaml.push_str("    enable_sentence: false\n");
             mint_yaml.push_str("    initial_quality: 99\n");
 
-            mint_yaml.push_str(&fuzzy_yaml_block);
+            if !is_non_full_pinyin_schema(mint_id) {
+                mint_yaml.push_str(&fuzzy_yaml_block);
+            }
             mint_yaml.push_str(&page_keys_yaml_block);
             mint_yaml.push_str(stats_filter_block);
 
@@ -4140,6 +4214,12 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 let td_num = if config.rime_ice_toggles.tone_display { 1 } else { 2 };
                 resets.insert(idx, td_num);
             }
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "char_priority") {
+                resets.insert(idx, if config.rime_ice_toggles.search_single_char { 1 } else { 0 });
+            }
+            if let Some(idx) = resolve_switch_index_for_schema(user_dir, wx_id, "charset_filter") {
+                resets.insert(idx, if config.rime_ice_toggles.charset_filter { 1 } else { 0 });
+            }
 
             if config.rime_ice_toggles.spelling_hints {
                 wx_yaml.push_str("  \"translator/spelling_hints\": 30\n");
@@ -4156,7 +4236,9 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
             }
             append_switch_resets(&mut wx_yaml, &resets);
 
-            wx_yaml.push_str(&fuzzy_yaml_block);
+            if !is_non_full_pinyin_schema(wx_id) {
+                wx_yaml.push_str(&fuzzy_yaml_block);
+            }
             wx_yaml.push_str(&page_keys_yaml_block);
             wx_yaml.push_str(stats_filter_block);
 
@@ -4195,6 +4277,8 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
     // E. 用户启用的其他第三方常规方案 (通用开关与按键绑定)
     let handled_ids = [
         "rime_ice",
+        "double_pinyin", "double_pinyin_flypy", "double_pinyin_mspy",
+        "double_pinyin_sogou", "double_pinyin_abc", "double_pinyin_jiajia", "double_pinyin_ziguang",
         "rime_frost", "frost_pinyin", "frost",
         "rime_frost_double_pinyin", "rime_frost_double_pinyin_flypy",
         "rime_frost_double_pinyin_mspy", "rime_frost_double_pinyin_sogou",
@@ -4224,7 +4308,9 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
                 }
                 append_switch_resets(&mut other_yaml, &resets);
 
-                other_yaml.push_str(&fuzzy_yaml_block);
+                if !is_non_full_pinyin_schema(&s.id) {
+                    other_yaml.push_str(&fuzzy_yaml_block);
+                }
                 other_yaml.push_str(&page_keys_yaml_block);
                 other_yaml.push_str(stats_filter_block);
 
@@ -4237,7 +4323,7 @@ pub fn save_unified_config(user_dir: &str, config: UnifiedFullConfig) -> Result<
     // 维护英文大小写派生规则补丁 (melt_eng.custom.yaml)
     let melt_schema = u_path.join("melt_eng.schema.yaml");
     let melt_custom = u_path.join("melt_eng.custom.yaml");
-    let has_melt = melt_schema.exists() || melt_custom.exists() || is_ice_active || config.schemas.iter().any(|s| s.id == "melt_eng");
+    let has_melt = melt_schema.exists() || melt_custom.exists() || is_ice_active || config.schemas.iter().any(|s| s.id == "melt_eng" || ice_family_ids.contains(&s.id.as_str()));
     if has_melt {
         let derive_rule = if config.rime_ice_toggles.melt_eng_all_case {
             "derive/^.+$/\\L$0/"
